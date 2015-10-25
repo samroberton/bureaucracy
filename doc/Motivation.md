@@ -17,7 +17,8 @@ the application is often possible in surprisingly concise terms.  My claim is
 that driving the behaviour of your user interface from such a declarative
 description will make your code simpler and easier to reason about.
 
-Along those lines, `bureaucracy` is motivated by a few simple principles:
+Along those lines, here are some of the motivating principles behind
+`bureaucracy`.
 
 1.  When we describe user interfaces, we talk about them in terms that map
     naturally to a simple hierarchy of state machines.  A user is not yet logged
@@ -68,7 +69,8 @@ Along those lines, `bureaucracy` is motivated by a few simple principles:
     renders its views is like encapsulating your keys down the back of the
     couch: you've put it in a new home, OK, but you've "chosen" that home
     because, well, it's gotta be somewhere, and that's kind of where you were at
-    the time.
+    the time.  I think I'm going to take to calling that kind of encapsulation
+    "encap-fuscation": all it really serves to do is obfuscate what's going on.
 
 7.  Your user interface code will be lot simpler if the code that is responsible
     for rendering a form with a button doesn't have to know what's supposed to

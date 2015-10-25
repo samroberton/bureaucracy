@@ -1,11 +1,10 @@
 (ns bureaucracy.debug
-  (:refer-clojure :exclude [defrecord])
-  #?(:cljs
-     (:require-macros [schema.core :refer [defrecord]])
-     :clj
-     (:require [clojure.tools.logging :as log]))
-  (:require [bureaucracy.core :refer [get-state event start StateMachine]]
-            [schema.core :as s #?@(:clj [:refer [defrecord]])]))
+  (:require [bureaucracy.core :refer [current-state get-submachine get-substate-db event start
+                                      #?(:cljs StateMachine)]]
+            [schema.core :as s])
+  #?@(:clj
+      [(:require [clojure.tools.logging :as log])
+       (:import bureaucracy.core.StateMachine)]))
 
 #?(:cljs
    (def debug (.-log js/console))
@@ -27,23 +26,23 @@
 ;;;; TracingStateMachine, for debugging purposes
 ;;;;
 
-(defrecord Tracing [name machine :- (s/protocol StateMachine)]
+(s/defrecord Tracing [name machine :- (s/protocol StateMachine)]
   StateMachine
-  (start [_ app-db dispatch-queue dispatcher-path event-id event-args]
-    (let [result (start machine app-db dispatch-queue dispatcher-path event-id event-args)]
+  (start [_ app-db dispatch-queue event-id dispatcher-arg event-arg]
+    (let [result (start machine app-db dispatch-queue event-id dispatcher-arg event-arg)]
       (if (= (:app-db result) app-db)
         (info "StateMachine " name " (start ...) returned unchanged app-db, "
               "state-db: " (:state-db result))
         (info "StateMachine " name " (start ...) returned: " result))
       result))
-  (event [_ db dispatch-queue dispatcher-path event-id event-args]
+  (event [_ db dispatch-queue event-id dispatcher-arg event-arg]
     (when-not db
       (throw (ex-info "StateMachine/event is being called with a nil db."
                       {:state-machine-name name, :event-id event-id})))
     (when-not (:app-db db)
-      (throw (ex-info "StateMachine/event is being called with a nil db."
+      (throw (ex-info "StateMachine/event is being called with a nil app-db."
                       {:state-machine-name name, :event-id event-id, :db db})))
-    (let [result (event machine db dispatch-queue dispatcher-path event-id event-args)]
+    (let [result (event machine db dispatch-queue event-id dispatcher-arg event-arg)]
       (cond
         (not result)
         (error "StateMachine" name "(event ...) returned a nil db for event-id" event-id)
@@ -66,8 +65,12 @@
         (debug "StateMachine" name "(event ...) returned a new db for event-id" event-id ":"
                result))
       result))
-  (get-state [_ state-db path]
-    (get-state machine state-db path)))
+  (current-state [_ state-db]
+    (current-state machine state-db))
+  (get-submachine [_ path-component]
+    (get-submachine machine path-component))
+  (get-substate-db [_ state-db path-component]
+    (get-substate-db machine state-db path-component)))
 
 (defn tracing
   "FIXME: tracing docstring."

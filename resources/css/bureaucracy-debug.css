@@ -1,0 +1,129 @@
+div#debug-container {
+    display:   flex;
+    flex-flow: column nowrap;
+}
+
+div#bcy-debug {
+    display:          flex;
+    flex:             0 0 90vh;
+    flex-flow:        column nowrap;
+    align-items:      stretch;
+
+    position:         fixed;
+    top:              5vh;
+    right:            5px;
+    width:            600px;
+    min-height:       90vh;
+    max-height:       90vh;
+    overflow-y:       scroll;
+    z-index:          100;
+    opacity:          0.6;
+
+    background-color: black;
+    font-size:        0.9em;
+    color:            #666666;
+    padding:          1em;
+    border-radius:    6px;
+}
+
+div#bcy-debug.minimised {
+    flex-flow:       row nowrap;
+    justify-content: space-around;
+    flex:            0 0 2em;
+    min-height:      0;
+    width:           5em;
+}
+
+div#bcy-debug div,
+div#bcy-debug span,
+div#bcy-debug h1,
+div#bcy-debug h2,
+div#bcy-debug pre,
+div#bcy-debug ul,
+div#bcy-debug ul li {
+    display: flex;
+    flex:    0 0 auto;
+}
+
+div#bcy-debug div#bcy-debug-header {
+    justify-content: space-between;
+}
+
+div#bcy-debug div#bcy-debug-header > span.bcy-icons {
+    align-self: flex-start;
+}
+
+div#bcy-debug div#bcy-debug-header > span.bcy-icons > i {
+    margin-left: 1em;
+}
+
+div#bcy-debug h1 {
+    font-size: 1.5em;
+    margin:    0.5em 0 0.5em 0;
+}
+
+div#bcy-debug h2 {
+    font-size: 1.3em;
+    align-self: flex-end;
+    margin:    0.5em 0 0.5em 0;
+}
+
+div#bcy-debug pre {
+    padding:   0.2em;
+    margin:    1px;
+    font-size: 0.7em;
+}
+
+div#bcy-debug > div.bcy-state-machine, div#bcy-debug > div.bcy-view-tree {
+    padding:       0.5em 0.5em 0.5em 0.5em;
+    border:        1px dotted #555555;
+    border-radius: 4px;
+    flex-flow:     column nowrap;
+}
+
+div#bcy-debug ul {
+    flex-flow: column nowrap;
+    padding:   0 0 0 1.5em;
+}
+
+div#bcy-debug ul.bcy-machine > li {
+    flex-flow:     column nowrap;
+}
+
+div#bcy-debug ul.bcy-machine li span.bcy-state {
+    align-items: center;
+}
+
+div#bcy-debug ul.bcy-machine li span.bcy-state i.zmdi {
+    margin-left: 0.3em;
+    margin-right: 0.3em;
+}
+
+div#bcy-debug div.bcy-state-details {
+    margin-left: 2em;
+    border: 1px dotted #555555;
+    border-radius: 3px;
+    flex-flow: column nowrap;
+}
+
+div#bcy-debug ul.bcy-machine > li.peer {
+    padding-left: 0.5em;
+}
+
+div#bcy-debug ul.bcy-machine li.peer > ul {
+    border-left: 3px solid #555555;
+    margin-left: 0.5em;
+    padding-left: 0.5em;
+}
+
+div#bcy-debug div.bcy-view-tree {
+    
+}
+
+div#bcy-debug ul.bcy-view-tree li {
+    flex-flow: column nowrap;
+}
+
+div#bcy-debug ul.bcy-view-tree li.inactive {
+    text-decoration: line-through;
+}

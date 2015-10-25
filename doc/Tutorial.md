@@ -60,14 +60,14 @@ server to actually do the login.  We can do better.
 (defn update-state [db _ k v]
   (assoc-in db [:state-db k] v))
 
-(defn submit-form [{:keys [state-db] :as db} dispatch]
+(defn submit-form [{:keys [state-db] :as db} dispatcher _ _]
   (ajax-post "/auth"
              (select-keys state-db [:username :password])
-             #(dispatch ::success %)
-             #(dispatch ::failure %))
+             (dispatcher ::success)
+             (dispatcher ::failure))
   db)
 
-(defn success [db _ ajax-response]
+(defn success [db _ _ ajax-response]
   (-> db
       (update :app-db assoc :auth ajax-response)
       (update :state-db dissoc :username :password)))
@@ -84,22 +84,21 @@ server to actually do the login.  We can do better.
 Not a very complex state machine, still, but enough to do something useful.
 
 ```clojure
-;; Ok, let's enter a username. Ignore the nils for now, and read this as having
-;; rest-args, like:  (do-things ::update :username "sam")
-(reset! db (bcy/event login-machine @db nil nil ::update '(:username "sam")))
+;; Ok, let's enter a username. Ignore the nil for now.
+(reset! db (bcy/event login-machine @db nil ::update :username "sam"))
 ;=> {:app-db {}, :state-db {:state :login-required, :username "sam"}}
 
 ;; Encore!
-(reset! db (bcy/event login-machine @db nil nil ::update '(:password "pa$$w0rd")))
+(reset! db (bcy/event login-machine @db nil ::update :password "pa$$w0rd"))
 ;=> {:app-db {}, :state-db {:state :login-required, :username "sam", :password "pa$$w0rd"}}
 
 ;; Submit the form — this is going to call our dummy ajax-post function.
-(reset! db (bcy/event login-machine @db nil nil ::submit '()))
+(reset! db (bcy/event login-machine @db nil ::submit nil nil))
 ;<> Posting {:username "sam", :password "pa$$w0rd"} to url /auth
 ;=> {:app-db {}, :state-db {:state :logging-in, :username "sam", :password "pa$$w0rd"}}
 
 ;; And let's manually execute the AJAX success callback ourselves.
-(reset! db (bcy/event login-machine @db nil nil ::success '({:auth-token "awesome"})))
+(reset! db (bcy/event login-machine @db nil ::success nil {:auth-token "awesome"}))
 ;=> {:app-db {:auth {:auth-token "awesome"}}, :state-db {:state :logged-in}}
 ```
 
@@ -116,11 +115,19 @@ the bare keyword.  The old machine just changed its state when we gave it a
 Transition functions are called automatically by the state machine: the caller
 doesn't know anything about them.  (The caller just says "hey, event `::submit`
 is happening, guys and girls — take care of that, would you?")  The state
-machine calls them with at least two arguments: the `db` value, and a `dispatch`
-function which they can use as a callback if they need to (most won't).
-Additionally, they'll be given any other arguments you supply as the
-`event-args` (final) parameter when you call the `event` method — as we do above
-with the `::update` event.
+machine calls them with four arguments:
+ * the `db` value,
+ * a `dispatcher` function which they can use to produce a callback handler if
+   they need to (most won't),
+ * the (optional) argument that was supplied to the `dispatcher` function which
+   produced the callback which caused the transition — above we see `:username`
+   and `:password` arguments to the `event` calls because we're mimicking
+   `on-change` handlers produced via `(dispatcher ::update :username)` and
+   `(dispatcher ::update :password)`, plus a `nil` argument to the final `event`
+   call because the AJAX callback handler we're mimicking would be produced with
+   just `(dispatcher ::submit)`,
+ * the argument that was given to the callback handler — above, the value of the
+   username / password, and the body of the AJAX response.
 
 If you squint real hard, you might also be able to identify in the above the
 distinction between the `app-db` part of the `db` value and the `state-db`: the
@@ -143,13 +150,13 @@ form, you get taken to a widget screen, where you can view, edit or delete a
 widget.
 
 ```clojure
-(defn init-widget [db & _]
+(defn init-widget [db _ _ _]
   (assoc-in db [:state-db :widget] {:widget-name "Frozzle", :sprocket-count 5}))
 
 (defn update-widget-state [db _ k v]
   (assoc-in db [:state-db :widget k] v))
 
-(defn save-widget [db _]
+(defn save-widget [db _ _ _]
   (assoc-in db [:app-db :saved-widget] (get-in db [:state-db :widget])))
 
 (bcy/defmachine widget-machine
@@ -171,29 +178,29 @@ like `login-machine`, except that when you enter the `:logged-in` state (on a
 `::submit` event), then the `widget-machine` state machine also comes into play.
 
 ```clojure
-(reset! db (event composed-machine @db queue-atom [] ::success [{:auth-token "awesome"}]))
+(reset! db (event composed-machine @db queue-atom ::success nil {:auth-token "awesome"}))
 ;=> {:app-db   {:auth {:auth-token "awesome"}}
 ;    :state-db {:state :logged-in
 ;               :bureaucracy.core/submachine-db {:state  :viewing
 ;                                                :widget {:widget-name   "Frozzle"
 ;                                                         :sprocket-count 5}}}}
 
-(reset! db (event composed-machine @db queue-atom [] ::edit-widget []))
+(reset! db (event composed-machine @db queue-atom ::edit-widget nil nil))
 ;=> {:app-db   {:auth {:auth-token "awesome"}}
 ;    :state-db {:state :logged-in
 ;               :bureaucracy.core/submachine-db {:state  :editing
 ;                                                :widget {:widget-name   "Frozzle"
 ;                                                         :sprocket-count 5}}}}
 
-(reset! db (event composed-machine @db queue-atom [] ::update-widget [:widget-name "Blurp"]))
+(reset! db (event composed-machine @db queue-atom ::update-widget :widget-name "Blurp"))
 ;=> {:app-db   {:auth {:auth-token "awesome"}}
 ;    :state-db {:state :logged-in
 ;               :bureaucracy.core/submachine-db {:state  :editing
 ;                                                :widget {:widget-name    "Blurp"
 ;                                                         :sprocket-count 5}}}}
 
-(reset! db (event composed-machine @db queue-atom [] ::submit-widget nil))
-(reset! db (event composed-machine @db queue-atom [] ::logout nil))
+(reset! db (event composed-machine @db queue-atom ::submit-widget nil nil))
+(reset! db (event composed-machine @db queue-atom ::logout nil nil))
 ;=> {:app-db   {:saved-widget {:widget-name    "Blurp"
 ;                              :sprocket-count 5}}
 ;    :state-db {:state :login-required}}
@@ -260,8 +267,8 @@ a function that spits out whatever HTML we might want to render for the login
 form.  But there's one important question: how does that HTML then do stuff?
 When you type your name in the 'username' box, how does that get into the state
 machine?  Because, frankly, if it involves an on-change handler that looks
-anything like `#(reset!  db (event login-machine @db nil nil ::update
-'(:username "sam")))`, then ... thanks, but no thanks.
+anything like `#(reset!  db (event login-machine @db queue-atom ::update
+:username "sam"))`, then ... thanks, but no thanks.
 
 Of course the answer is that it doesn't.  We want our view functions to produce
 on-change and on-click and on-new-javascript-framework-invented handlers that
@@ -270,33 +277,35 @@ minimum.
 
 So what's the bare minimum?  Well, stealing pretty directly from the
 aforementionedly excellent [re-frame], how about this for a button's on-click
-handler?  `#(dispatch ::submit)`
+handler?  `(dispatcher ::submit)`
 
 Now our view doesn't need to know what happens when the button gets clicked.  It
 just needs to know that whatever happens goes by the name `::submit`.  For the
-username text input's on-change?  `#(dispatch ::update :username %)`
+username text input's on-change?  `(dispatcher ::update :username)`
 
-Cool.  We saw `dispatch` in the callback functions we passed to our hypothetical
-`ajax-post` function, too.  What the hell is it?  In re-frame, it's a global
-`defn`, in `bureaucracy`, it's a function you get given as a parameter whenever
-you might need to be able to affect the application's state asynchronously.
+Cool.  We saw `dispatcher` in the callback functions we passed to our hypothetical
+`ajax-post` function, too.  What the hell is it?  In re-frame, `dispatch` is a
+global `defn`, in `bureaucracy`, `(dispatcher)` is a higher-order function you get
+given as a parameter whenever you might need to general a handler function (a
+JavaScript event listener, or an AJAX callback, etc) which needs to affect the
+application's state asynchronously.
 More simply, though: it's just a callback.  When we played with the `login`
-machine above, we cheated a bit, as you might have guessed from the two `nil`
-parameters to `event` that I quietly didn't mention every time we invoked the
-state machine.  What you're actually supposed to pass in there are a queue atom
-and a path.
+machine above, we cheated a bit, as you might have guessed from the unexplained
+`nil` parameter to `event` that I quietly didn't mention every time we invoked the
+state machine.  What you're actually supposed to pass in there is a queue atom.
 
 ```clojure
 ;; CLJS has #queue -- on the JVM, use (clojure.lang.PersistentQueue/EMPTY).
 (def dispatch-queue (atom #queue []))
 
-(reset! db (bcy/event login-machine @db dispatch-queue [] ::submit nil))
+(reset! db (bcy/event login-machine @db dispatch-queue ::submit nil nil))
 ```
 
-`bureaucracy` will use `(bcy/make-dispatch-fn dispatch-queue dispatch-path)` to
-get a `dispatch` function to give your transition function: as a result, when
-the `::submit` event causes the AJAX call to happen, the `(dispatch ::success)`
-in the AJAX success callback will put an event on the dispatch queue.
+`bureaucracy` will use `(bcy/make-dispatcher dispatch-queue)` to get a
+`dispatch` function to give your transition function: as a result, when the
+`::submit` event causes the AJAX call to happen, invoking the handler you got
+from `(dispatcher ::success)` as the AJAX success callback will put an event on
+the dispatch queue.
 
 If you run this with an actual AJAX mechanism, you'll see that after the
 callback is called, `dispatch-queue` will contain an event, ready for us to read
@@ -305,9 +314,9 @@ off and hand to the state machine.  (In practice, we'd do this with
 
 Our UI handlers use exactly the same mechanism: we'll see exactly how this works
 later on, but for now, it's sufficient to know that when we define a function
-that renders a view, we should have it take `dispatch` as a parameter, and
-implement all its event handlers by calling `(dispatch ::some-event
-&optional-event-args)`.
+that renders a view, we should have it take `dispatcher` as a parameter, and
+implement all its event handlers by calling
+`(dispatcher ::some-event &optional-dispatcher-arg)`.
 
 
 ## View hierarchies
@@ -327,16 +336,16 @@ manages our state:  `bureaucracy.view` uses it to decide what views to render.
 
 ```clojure
 (def the-view
-  [{:state [#{:login-required :logging-in :login-failed}]
+  [{:state {[] #{:login-required :logging-in :login-failed}}
     :view  login/render}
 
-   {:state    [:logged-in]
+   {:state    {[:logged-in] :*}
     :view     widget/render-list-and-widget
-    :subviews {:list   [{:state [:logged-in {:widget-list :*}]
+    :subviews {:list   [{:state {[:logged-in :widget-list] :*}
                          :view  widget/render-list}]
-               :widget [{:state [:logged-in {:widget-view #{:viewing :editing}}]
+               :widget [{:state {[:logged-in :widget-view] #{:viewing :editing}}
                          :view  widget/render-widget}
-                        {:state [:logged-in {:widget-view #{:deleting}}]
+                        {:state {[:logged-in :widget-view] #{:deleting}}
                          :view  widget/render-widget-delete}]}}])
 
 (bureaucracy.view/render-view the-view composed-machine @db dispatch-queue)

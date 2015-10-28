@@ -154,10 +154,12 @@
      ;; FIXME if it's a java.io.File, do some equivalent to JS file input?
      maybe-js-event
      :cljs
-     (if (and maybe-js-event (instance? js/Event maybe-js-event))
+     (if (and maybe-js-event (or (instance? js/Event maybe-js-event)
+                                 (instance? js/Event (.-nativeEvent maybe-js-event))))
        (case (.-type maybe-js-event)
          "blur"    (translate-dom-input-value (.-target maybe-js-event))
          "change"  (translate-dom-input-value (.-target maybe-js-event))
+         "input"   (translate-dom-input-value (.-target maybe-js-event))
          "keydown" (translate-keycode (.-which maybe-js-event))
          "keyup"   (translate-keycode (.-which maybe-js-event))
          nil)

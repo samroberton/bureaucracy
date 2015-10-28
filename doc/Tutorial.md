@@ -3,7 +3,7 @@
 Here is a simple state machine for a user login:
 
 ```clojure
-(ns bureaucracy.readme
+(ns bureaucracy.tutorial
   (:require [bureaucracy.core :as bcy]))
 
 (bcy/defmachine login-machine

@@ -1,7 +1,7 @@
 # bureaucracy
 
 A library for defining composeable state machines à la [Harel
-statecharts][Harel], and using them to manage -- and test -- the run-time state
+statecharts][Harel], and using them to manage — and test — the run-time state
 of an application's user interface.
 
 `bureaucracy` manages the hierarchy of faceless machines that make the (app's)
@@ -9,7 +9,10 @@ world go round.
 
 Using `bureaucracy`, you define state machines with enumerated states,
 responding to events which trigger state transitions and which effect the world
-by calling transition functions on those transitions.
+by calling transition functions on those transitions.  You describe your views
+in a declarative "view tree" data structure which says "when my state machine
+hierarchy matches this state, call this (pure) function to render this bit of my
+view, giving it the data the state machine is managing to render".
 
 State machines compose in two ways:
 
@@ -21,7 +24,7 @@ State machines compose in two ways:
    the meantime, feel free to pretend I said something funny.)
 
 2. Peer composition: where multiple active machines operate simultaneously
-   without a parent/child type relationship.  (Harel calls these 'components' --
+   without a parent/child type relationship.  (Harel calls these 'components' —
    which is a great term, except that React nicked it for something else.)
 
 The `StateMachine` protocol is also open: if you want to define a new way to
@@ -31,15 +34,21 @@ can take all the credit!)
 
 ## Getting started
 
-Besides the Rationale section below, there's a [Tutorial](docs/Tutorial.md).
+Besides the Rationale section below, there's a [Tutorial](doc/Tutorial.md).
 
-There's also some notes on [Testing](docs/Testing.md) and
-[Debugging](docs/Debugging.md) your UIs with `bureaucracy`.  If you've ever had
+There are some notes on [Testing](doc/Testing.md) which I hope are worth a
+read: I test my `bureaucracy`-based application entirely on the JVM, in
+`deftest` "unit" tests which exercise the UI and mock my AJAX calls to make
+actual in-process calls to the actual server application in JVM Clojure.  I
+think this is a powerful and simple testing mechanism.  If you've ever had
 difficulty testing your user interface code (or, for those of you who haven't,
 if you've ever felt uneasy about the fact that you're not testing your user
 interface code), I recommend at least a quick look at the Testing page.
 
-Finally, there's some rambling rantings in the [Motivation](docs/Motivation.md)
+There are also some notes on [Debugging](doc/Debugging.md) your UIs with
+`bureaucracy`'s debug view inspector.
+
+Finally, there's some rambling rantings in the [Motivation](doc/Motivation.md)
 doc, if you're really short on reading material.
 
 ### Warning: here be dragons
@@ -68,7 +77,7 @@ events, your application is (or should be!) in a steady state.
    as the current state of the world".
 
 2. Composing state machines is a simple and effective way to describe the
-   behaviour of your application -- and it encourages you to do so in a way that
+   behaviour of your application — and it encourages you to do so in a way that
    is highly declarative, and entirely independent of the way your pages render.
    `bureaucracy`'s composeable state machine model allows you to write your user
    interface code in the same way you talk about the result: "when the user is
@@ -90,7 +99,7 @@ events, your application is (or should be!) in a steady state.
    view functions which should be called to produce the view given the state
    machine and the "database" (`bureaucracy` calls this data structure the "view
    tree").  If you do describe it like this, then you can write very succinct
-   and very powerful tests -- traditionally one of the harder things to do
+   and very powerful tests — traditionally one of the harder things to do
    effectively in user interfaces.
 
 
@@ -99,7 +108,7 @@ events, your application is (or should be!) in a steady state.
 `bureaucracy` is heavily inspired by Kevin Lynagh's talks about building UIs
 with Harel statecharts.  You can also think of a lot of what this library tries
 to facilitate as a slightly different take on Day 8 / Mike Thompson's excellent
-[re-frame] -- especially in the way `re-frame`'s dispatch mechanism is built.
+[re-frame] — especially in the way `re-frame`'s dispatch mechanism is built.
 Many thanks to both Kevin and Mike.
 
 

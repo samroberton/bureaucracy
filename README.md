@@ -34,6 +34,8 @@ can take all the credit!)
 
 ## Getting started
 
+[![Clojars Project](http://clojars.org/com.samroberton/bureaucracy/latest-version.svg)](http://clojars.org/com.samroberton/bureaucracy)
+
 Besides the Rationale section below, there's a [Tutorial](doc/Tutorial.md).
 
 There are some notes on [Testing](doc/Testing.md) which I hope are worth a

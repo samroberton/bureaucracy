@@ -186,10 +186,11 @@
                                 ;; a map?
                                 :event-arg       (extract-dispatched-value value)})
         nil)
-       ([js-event dom-id]
+       ([js-event & args]
         ;; React calls event handlers with the SyntheticEvent as the first arg
-        ;; and DOM ID as the second. We don't want the dom-id, but not supplying
-        ;; the two-arg function will result in an arity error.
+        ;; and DOM ID as the second (and sometime js/Event as the third?). We
+        ;; don't want the dom-id, but not supplying the two-/three-arg function
+        ;; will result in an arity error.
         (dispatch js-event))))))
 
 (s/defn translate-dispatcher [dispatcher event-id-translations-map :- {Event Event}]

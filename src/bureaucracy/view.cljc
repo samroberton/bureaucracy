@@ -1,5 +1,6 @@
 (ns bureaucracy.view
-  (:require [bureaucracy.core :refer [current-state get-path make-dispatcher matches-state?]]))
+  (:require [bureaucracy.core :refer [current-state get-path make-dispatcher matches-state?
+                                      translate-dispatcher]]))
 
 
 (defn render-view
@@ -7,7 +8,7 @@
   [the-view state-machine {:keys [state-db] :as db} dispatch-queue]
   (if (sequential? the-view)
     (first (remove nil? (map #(render-view % state-machine db dispatch-queue) the-view)))
-    (let [{:keys [view state subviews extra-data subview-item]} the-view
+    (let [{:keys [view state dispatching subviews extra-data subview-item]} the-view
           [path state-match-rule] (first state)
           {view-machine  :machine
            view-state-db :state-db} (get-path state-machine state-db path)]
@@ -18,7 +19,9 @@
                  ;; work.
                  (matches-state? state-match-rule (current-state view-machine view-state-db)))
         (apply view
-               {:dispatcher      (make-dispatcher dispatch-queue)
+               {:dispatcher      (if dispatching
+                                   (translate-dispatcher (make-dispatcher dispatch-queue) dispatching)
+                                   (make-dispatcher dispatch-queue))
                 :render-subview  (fn [subview-id]
                                    (if-let [subview (get subviews subview-id)]
                                      (render-view subview state-machine db dispatch-queue)
@@ -62,7 +65,7 @@
 (defn with-path-prefix
   "FIXME: document with-path-prefix."
   [prefix the-view]
-  (if (vector? the-view)
+  (if (sequential? the-view)
     (mapv (partial with-path-prefix prefix) the-view)
     (let [{:keys [view state subviews extra-data]} the-view]
       (assoc the-view

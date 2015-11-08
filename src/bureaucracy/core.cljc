@@ -249,7 +249,7 @@
     (let [db             {:app-db app-db}
           transition-map (get transitions start)
           dispatcher     (make-dispatcher dispatch-queue)]
-      ;; if the event-id is in transition-map, use that, otherwise ::enter
+      ;; If the event-id is in transition-map, use that, otherwise ::enter.
       (if-let [[new-state transition-fn] (or (get transition-map event-id)
                                              (get transition-map enter))]
         (let [transition-fn (or transition-fn pure-transition)]
@@ -259,18 +259,22 @@
                          event-arg))
         (assoc-in db [:state-db :state] start))))
   (event [this db dispatch-queue event-id dispatcher-arg event-arg]
-    (let [transition-map (get transitions (:state (:state-db db)))]
+    (let [orig-state     (:state (:state-db db))
+          transition-map (get transitions orig-state)]
       (when-not transition-map
         (throw (ex-info "Invalid state machine state" {:machine this
-                                                       :state   (:state (:state-db db))})))
+                                                       :state   orig-state})))
       (if-let [[new-state transition-fn] (get transition-map event-id)]
-        (let [transition-fn (or transition-fn pure-transition)]
-          (-> (transition-fn db
-                             (make-dispatcher dispatch-queue)
-                             dispatcher-arg
-                             event-arg)
-              (assoc-in [:state-db :state] new-state)))
-        ;; this state-machine doesn't have a transition for this event
+        (let [transition-fn (or transition-fn pure-transition)
+              result        (transition-fn db
+                                           (make-dispatcher dispatch-queue)
+                                           dispatcher-arg
+                                           event-arg)]
+          ;; `:>` indicates that the transition-fn determines the new state.
+          (if (= :> new-state)
+            result
+            (assoc-in result [:state-db :state] new-state)))
+        ;; This state-machine doesn't have a transition for this event.
         db)))
   (current-state [this state-db]
     (:state state-db))

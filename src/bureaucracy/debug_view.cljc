@@ -26,14 +26,15 @@
    "Transitions: "
    (into [:ul.bcy-transitions]
          (map (fn [[event [to-state tx-fn]]]
-                [:li [:pre {:title (str "'" event "', "
-                                        (if (= to-state (:state debuggee-state-db))
-                                          "self-transition"
-                                          (str "transitions to '" to-state "'"))
-                                        (when tx-fn
-                                          (str ", executing function '"
-                                               #?(:clj tx-fn :cljs (.-name tx-fn)) "'")))}
-                      (str event)]])
+                [:li {:key (str event)}
+                 [:pre {:title (str "'" event "', "
+                                    (if (= to-state (:state debuggee-state-db))
+                                      "self-transition"
+                                      (str "transitions to '" to-state "'"))
+                                    (when tx-fn
+                                      (str ", executing function '"
+                                           #?(:clj tx-fn :cljs (.-name tx-fn)) "'")))}
+                  (str event)]])
               (get (:transitions machine) (:state debuggee-state-db))))
    "Data: "
    [:pre (pprint-str (dissoc debuggee-state-db :state))]])
@@ -47,7 +48,7 @@
   (render-debug-view [this debuggee-state-db renderer-state-db path _ dispatcher]
     (let [has-data? (not-empty (dissoc debuggee-state-db :state))
           selected? (= path (:selected-path renderer-state-db))]
-      [:li
+      [:li {:key (pr-str path)}
        [:span.bcy-state
         (when selected? {:class "selected"})
         [:pre {:title (str "Path: " (pr-str path))}
@@ -88,80 +89,81 @@
 
   bureaucracy.core.Peer
   (render-debug-view [this debuggee-state-db renderer-state-db path next-path-fn dispatcher]
-    [:li.peer (str (bcy/machine-name this))
-     (into [:ul.bcy-machine]
-           (map (fn [[name submachine]]
-                  (let [substate-db (get (:bureaucracy.core/submachine-dbs debuggee-state-db) name)]
-                    (render-debug-view submachine
-                                       substate-db
-                                       renderer-state-db
-                                       (next-path-fn name)
-                                       (fn [next-path] (conj path {name next-path}))
-                                       dispatcher)))
-                (:submachines this)))]))
+    (let [machine-name (str (bcy/machine-name this))]
+      [:li.peer {:key machine-name}
+       machine-name
+       (into [:ul.bcy-machine]
+             (map (fn [[name submachine]]
+                    (let [substate-db (get (:bureaucracy.core/submachine-dbs debuggee-state-db) name)]
+                      (render-debug-view submachine
+                                         substate-db
+                                         renderer-state-db
+                                         (next-path-fn name)
+                                         (fn [next-path] (conj path {name next-path}))
+                                         dispatcher)))
+                  (:submachines this)))])))
 
-(defn- render-view-tree [{:keys [machine view-tree db-atom]}]
-  (let [db @db-atom]
-    (into [:ul.bcy-view-tree]
-          (letfn [(single-node [name {:keys [state view subviews]}]
-                    (let [[path match-rule]
-                          (first state)
+(defn- render-view-tree [{:keys [machine view-tree db]}]
+  (into [:ul.bcy-view-tree]
+        (letfn [(single-node [name maybe-index {:keys [state view subviews]}]
+                  (let [[path match-rule]
+                        (first state)
 
-                          {view-machine :machine view-state-db :state-db}
-                          (bcy/get-path machine (:state-db db) path)
+                        {view-machine :machine view-state-db :state-db}
+                        (bcy/get-path machine (:state-db db) path)
 
-                          active?
-                          (and view-machine
-                               view-state-db
-                               (bcy/matches-state? match-rule view-state-db))]
-                      [:li {:class (if active? "active" "inactive")}
-                       [:span
-                        (pr-str name)
-                        [:pre {:title (if active?
-                                        (pr-str state)
-                                        (str "(not " (pr-str state) ")"))}
-                         (.-name view)]]
-                       (when (and active? (not-empty subviews))
-                         (into [:ul]
-                               (mapcat (fn [[name subview-or-subview-seq]]
-                                         (node name subview-or-subview-seq))
-                                       subviews)))]))
-                  (node [name item-or-item-seq]
-                    (if (sequential? item-or-item-seq)
-                      (take-until #(= "active" (:class (second %)))
-                                  (map #(single-node name %) item-or-item-seq))
-                      (list (single-node name item-or-item-seq))))]
-            (node "root" view-tree)))))
+                        active?
+                        (and view-machine
+                             view-state-db
+                             (bcy/matches-state? match-rule view-state-db))]
+                    [:li {:class (if active? "active" "inactive")
+                          :key   (str name (or maybe-index ""))}
+                     [:span
+                      (pr-str name)
+                      [:pre {:title (if active?
+                                      (pr-str state)
+                                      (str "(not " (pr-str state) ")"))}
+                       (.-name view)]]
+                     (when (and active? (not-empty subviews))
+                       (into [:ul]
+                             (mapcat (fn [[name subview-or-subview-seq]]
+                                       (node name subview-or-subview-seq))
+                                     subviews)))]))
+                (node [name item-or-item-seq]
+                  (if (sequential? item-or-item-seq)
+                    (take-until #(= "active" (:class (second %)))
+                                (map-indexed #(single-node name %1 %2) item-or-item-seq))
+                    (list (single-node name nil item-or-item-seq))))]
+          (node "root" view-tree))))
 
 (defn render
   [{:keys [dispatcher]}
-   {:keys [machine db-atom dispatch-queue] :as renderer-app-db}
+   {:keys [machine db dispatch-queue] :as renderer-app-db}
    {:keys [state] :as renderer-state-db}]
-  (let [debuggee-db @db-atom]
-    [:div#bcy-debug
-     [:div#bcy-debug-header
-      [:h1 "bureaucracy"]
-      [:span.bcy-icons
-       [:i.zmdi.zmdi-window-minimize {:title    "Minimize debug window"
-                                      :on-click (dispatcher ::minimise)}]
-       [:i.zmdi.zmdi-close {:title    "Close"
-                            :on-click (dispatcher ::close)}]]]
-     [:h2 "State machine"]
-     [:div.bcy-state-machine
-      [:ul.bcy-machine
-       (render-debug-view machine
-                          (:state-db debuggee-db)
-                          renderer-state-db
-                          []
-                          (partial conj [])
-                          dispatcher)]
-      (when-let [path (:selected-path renderer-state-db)]
-        (let [{submachine :machine
-               substate-db :state-db} (bcy/get-path machine (:state-db debuggee-db) path)]
-          (show-state-details submachine substate-db dispatcher)))]
-     [:h2 "View tree"]
-     [:div.bcy-view-tree
-      (render-view-tree renderer-app-db)]]))
+  [:div#bcy-debug
+   [:div#bcy-debug-header
+    [:h1 "bureaucracy"]
+    [:span.bcy-icons
+     [:i.zmdi.zmdi-window-minimize {:title    "Minimize debug window"
+                                    :on-click (dispatcher ::minimise)}]
+     [:i.zmdi.zmdi-close {:title    "Close"
+                          :on-click (dispatcher ::close)}]]]
+   [:h2 "State machine"]
+   [:div.bcy-state-machine
+    [:ul.bcy-machine
+     (render-debug-view machine
+                        (:state-db db)
+                        renderer-state-db
+                        []
+                        (partial conj [])
+                        dispatcher)]
+    (when-let [path (:selected-path renderer-state-db)]
+      (let [{submachine :machine
+             substate-db :state-db} (bcy/get-path machine (:state-db db) path)]
+        (show-state-details submachine substate-db dispatcher)))]
+   [:h2 "View tree"]
+   [:div.bcy-view-tree
+    (render-view-tree renderer-app-db)]])
 
 (defn render-minimised [{:keys [dispatcher]} _ _]
   [:div#bcy-debug.minimised
@@ -196,7 +198,7 @@
   {:app-db   {:machine        nil
               :view-tree      nil
               :dispatch-queue nil
-              :db-atom        nil}
+              :db             nil}
    :state-db {}})
 
 (defn dispatch-ignored [event-id dispatcher-arg event-arg]

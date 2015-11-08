@@ -30,10 +30,12 @@ following code:
   [debugged-machine debugged-view-tree debugged-db-atom debugged-dispatch-queue]
   (swap! debug-db assoc :app-db {:machine        debugged-machine
                                  :view-tree      debugged-view-tree
-                                 :db-atom        debugged-db-atom
+                                 :db             @debugged-db-atom
                                  :dispatch-queue debugged-dispatch-queue})
   (when-not (:state (:state-db @debug-db))
     (swap! debug-db #(bcy/start debug-view/state-machine (:app-db %) debug-dispatch-queue :init! nil nil)))
+  (add-watch debugged-db-atom :debug-view (fn [_ _ _ new-val]
+                                              (swap! debug-db assoc-in [:app-db :db] new-val)))
   (reagent/render-component [(reagent/create-class
                               {:reagent-render
                                (fn [] [debug-component

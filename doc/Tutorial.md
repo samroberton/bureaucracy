@@ -326,10 +326,10 @@ Speaking of which, we *still* haven't actually rendered a damned view yet...
 Given that state is out of the way (managed by our state machines), the most
 annoying problem I find writing user interface code is cleanly writing the logic
 to make sure that the right components get rendered on the page with the right
-data.  Writing my view functions is easily: after all, they're trivial.  Making
+data.  Writing my view functions is easy: after all, they're trivial.  Making
 sure I wire everything up to call them at the right time with the right
-parameters — and doing it in a way that I can understand when I come back to
-it a week later — is the hard part.
+parameters — and doing it in a way that I can understand when I come back to it
+a week later — is the hard part.
 
 This is where the `bureaucracy.view` namespace comes in.  `bureaucracy.core`
 manages our state:  `bureaucracy.view` uses it to decide what views to render.

@@ -155,7 +155,7 @@
      maybe-js-event
      :cljs
      (if (and maybe-js-event (or (instance? js/Event maybe-js-event)
-                                 (instance? js/Event (.-nativeEvent maybe-js-event))))
+                                 (instance? js/Event (aget maybe-js-event "nativeEvent"))))
        (case (.-type maybe-js-event)
          "blur"    (translate-dom-input-value (.-target maybe-js-event))
          "change"  (translate-dom-input-value (.-target maybe-js-event))

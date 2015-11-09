@@ -27,6 +27,8 @@
                                 :extra-path extra-path}))))
        extra-data))
 
+(defrecord ViewItem [view state-db extra-data dispatching subviews])
+
 (defprotocol ViewRenderer
   (render-view-item [this dispatcher app-db view-item]))
 
@@ -75,15 +77,16 @@
               (transform-view view-items)))
           (transform-view [{:keys [view dispatching state extra-data subviews]}]
             (when-let [view-state-db (get-matching-state-db state-machine db state)]
-              (merge {:view        view
-                      :state-db    view-state-db
-                      :extra-data  (get-extra-data state-machine db extra-data)
-                      :dispatching dispatching}
-                     (when subviews
-                       {:subviews (reduce-kv (fn [result k sv]
-                                               (assoc result k (transform-views sv)))
-                                             {}
-                                             subviews)}))))]
+              (map->ViewItem
+               {:view        view
+                :state-db    view-state-db
+                :extra-data  (get-extra-data state-machine db extra-data)
+                :dispatching dispatching
+                :subviews    (not-empty
+                              (reduce-kv (fn [result k sv]
+                                           (assoc result k (transform-views sv)))
+                                         {}
+                                         subviews))})))]
     (let [transformed-view-item (transform-views view-tree)]
       (render-view-item renderer (make-dispatcher dispatch-queue) (:app-db db) transformed-view-item))))
 
@@ -103,37 +106,39 @@
           (fn [next-props _]
             (this-as this
               (let [curr-props (.-props this)
-                    result     (or (not= (.-appDb curr-props)
-                                         (.-appDb next-props))
-                                   (not= (.-viewItem curr-props)
-                                         (.-viewItem next-props)))]
+                    result     (or (not= (aget curr-props "appDb")
+                                         (aget next-props "appDb"))
+                                   (not= (aget curr-props "viewItem")
+                                         (aget next-props "viewItem")))]
                 #_
-                (.log js/console (str (.-name (:view (.-viewItem curr-props)))
-                                      ": app-db is "
-                                      (if (= (.-appDb curr-props)
-                                             (.-appDb next-props))
-                                        "unchanged" "changed")
-                                      ", view-item is "
-                                      (if (= (.-viewItem curr-props)
-                                             (.-viewItem next-props))
-                                        "unchanged" "changed")
-                                      ". Returning " result "."
-                                      "\ncurr-props .-view-item:"
-                                      (pr-str (dissoc (.-viewItem curr-props) :view))
-                                      ".\nnext-props .-view-item:"
-                                      (pr-str (dissoc (.-viewItem next-props) :view))))
+                (when (:view (.-viewItem curr-props))
+                  (.log js/console (str (.-name (:view (aget curr-props "viewItem")))
+                                        ": app-db is "
+                                        (if (= (aget curr-props "appDb")
+                                               (aget next-props "appDb"))
+                                          "unchanged" "changed")
+                                        ", view-item is "
+                                        (if (= (aget curr-props "viewItem")
+                                               (aget next-props "viewItem"))
+                                          "unchanged" "changed")
+                                        ". Returning " result "."
+                                        "\ncurr-props .-view-item:"
+                                        (pr-str (dissoc (aget curr-props "viewItem") :view))
+                                        ".\nnext-props .-view-item:"
+                                        (pr-str (dissoc (aget next-props "viewItem") :view)))))
                 result)))
           :render
           (fn []
             (this-as this
               (let [start-time   (.getTime (js/Date.))
                     props        (.-props this)
-                    renderer     (.-renderer props)
-                    dispatcher   (.-dispatcher props)
-                    app-db       (.-appDb props)
-                    view-item    (.-viewItem props)]
+                    renderer     (aget props "renderer")
+                    dispatcher   (aget props "dispatcher")
+                    app-db       (aget props "appDb")
+                    view-item    (aget props "viewItem")]
                 (when view-item
                   (let [result (reactifier (invoke-view-fn renderer dispatcher app-db view-item))]
+                    #_
                     (.log js/console (str (.-name (:view view-item)) " rendered in "
                                           (- (.getTime (js/Date.)) start-time) "ms"))
                     result)))))}))))
@@ -143,10 +148,10 @@
  (deftype ReactViewRenderer [factory]
    ViewRenderer
    (render-view-item [this dispatcher app-db view-item]
-     (factory #js {:renderer    this
-                   :dispatcher  dispatcher
-                   :appDb       app-db
-                   :viewItem    view-item}))))
+     (factory #js {"renderer"   this
+                   "dispatcher" dispatcher
+                   "appDb"      app-db
+                   "viewItem"   view-item}))))
 
 #?
 (:cljs

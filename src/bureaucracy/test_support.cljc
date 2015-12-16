@@ -14,7 +14,11 @@
      :dispatcher     (bcy/make-dispatcher q)}))
 
 (defn render [{:keys [db dispatch-queue state-machine view-tree]}]
-  (view/render-view view-tree state-machine @db dispatch-queue))
+  (view/render-view-tree (bureaucracy.view.BasicViewRenderer.)
+                         state-machine
+                         dispatch-queue
+                         view-tree
+                         @db))
 
 (defn consume
   "Consumes the current `system`'s dispatch queue."

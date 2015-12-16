@@ -143,11 +143,12 @@
     27 :escape
     keycode))
 
-(defn- translate-dom-input-value [input]
-  (case (.-type input)
-    "file"     (seq (.-files input))
-    "checkbox" (.-checked input)
-    (.-value input)))
+#?(:cljs
+   (defn- translate-dom-input-value [input]
+     (case (.-type input)
+       "file"     (array-seq (.-files input))
+       "checkbox" (.-checked input)
+       (.-value input))))
 
 (defn extract-dispatched-value [maybe-js-event]
   #?(:clj

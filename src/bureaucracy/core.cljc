@@ -155,8 +155,10 @@
      ;; FIXME if it's a java.io.File, do some equivalent to JS file input?
      maybe-js-event
      :cljs
-     (if (and maybe-js-event (or (instance? js/Event maybe-js-event)
-                                 (instance? js/Event (aget maybe-js-event "nativeEvent"))))
+     (if (and maybe-js-event
+              (exists? (aget js/window "Event"))
+              (or (instance? (aget js/window "Event") maybe-js-event)
+                  (instance? (aget js/window "Event") (aget maybe-js-event "nativeEvent"))))
        (case (.-type maybe-js-event)
          "blur"    (translate-dom-input-value (.-target maybe-js-event))
          "change"  (translate-dom-input-value (.-target maybe-js-event))
@@ -263,8 +265,8 @@
     (let [orig-state     (:state (:state-db db))
           transition-map (get transitions orig-state)]
       (when-not transition-map
-        (throw (ex-info "Invalid state machine state" {:machine this
-                                                       :state   orig-state})))
+        (throw (ex-info (str "Invalid state machine state: " orig-state)
+                        {:machine this, :state orig-state})))
       (if-let [[new-state transition-fn] (get transition-map event-id)]
         (let [transition-fn (or transition-fn pure-transition)
               result        (transition-fn db

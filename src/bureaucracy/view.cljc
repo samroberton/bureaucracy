@@ -1,7 +1,6 @@
 (ns bureaucracy.view
   (:require [bureaucracy.core :refer [current-state get-path make-dispatcher matches-state?
-                                      translate-dispatcher]]
-            #?(:cljs [cljsjs.react.dom])))
+                                      translate-dispatcher]]))
 
 (defn- get-matching-state-db [state-machine db state-match-map]
   (let [[path state-match-rule]    (first state-match-map)
@@ -45,14 +44,16 @@
                              ;; `find` since subview might exist but not
                              ;; currently be rendered.
                              (when-not (find subviews subview-id)
-                               (throw (ex-info "No such subview" {:subview-id subview-id})))
+                               (throw (ex-info (str "No such subview '" (name subview-id) "'")
+                                               {:subview-id (name subview-id)})))
                              (when-let [subview-item (get subviews subview-id)]
                                (render-view-item renderer dispatcher app-db subview-item)))
           :render-subviews (fn [subview-id state-db-key coll]
                              ;; `find` since subview might exist but not
                              ;; currently be rendered.
                              (when-not (find subviews subview-id)
-                               (throw (ex-info "No such subview" {:subview-id subview-id})))
+                               (throw (ex-info (str "No such subview '" (name subview-id) "'")
+                                               {:subview-id (name subview-id)})))
                              (when-let [subview-item (get subviews subview-id)]
                                (map-indexed (fn [idx item]
                                               (render-view-item renderer
@@ -97,9 +98,9 @@
 
 #?
 (:cljs
- (defn react-factory [reactifier]
-   (js/React.createFactory
-    (js/React.createClass
+ (defn- react-factory [react reactifier]
+   (.createFactory react
+    (.createClass react
      #js {:displayName
           "bureaucracy"
           :shouldComponentUpdate
@@ -156,12 +157,12 @@
 #?
 (:cljs
  (defn react-view-renderer
-   ([]
-    (react-view-renderer identity))
-   ([reactifier]
+   ([react]
+    (react-view-renderer react identity))
+   ([react reactifier]
     ;; FIXME factory per view function, so we can use the view function as the
     ;; display name.
-    (let [factory (react-factory reactifier)]
+    (let [factory (react-factory react reactifier)]
       (ReactViewRenderer. factory)))))
 
 

@@ -1,24 +1,23 @@
 (ns bureaucracy.core
   #?(:cljs (:require-macros bureaucracy.core))
   (:require [bureaucracy.util :as util]
-            [clojure.set :as set]
             [schema.core :as s]))
 
 ;;;;
 ;;;; State Machine protocol definition
 ;;;;
 
-(s/defschema State
+(s/defschema StateId
   "State machine states are represented as keywords. While it's up to you, in
   general, there's no need for state keywords to be namespaced."
   s/Keyword)
 
-(s/defschema Event
+(s/defschema EventId
   "State machine transitions are triggered by events, which are also identified
   by keywords.  When an event is dispatched by your application code, it is
   passed to every (active) machine in your state machine hierarchy, so to avoid
   accidental collisions between event names for different state machines, it is
-  recommended that Event keywords be namespaced (eg `::update`, rather than
+  recommended that event keywords be namespaced (eg `::update`, rather than
   `:update`)."
   s/Keyword)
 
@@ -78,7 +77,9 @@
           (recur next-m))))
 
 (defn get-machine
-  "FIXME document get-machine"
+  "Given a composed state machine hierarchy, retrieve the `StateMachine` in the
+  hierarchy at `path` (which might itself still be a composed state machine
+  hierarchy)."
   [machine path]
   (some-> (reduce (fn [machine path-component]
                     (or (get-submachine machine path-component)
@@ -105,7 +106,9 @@
           (recur next-m (get-substate-db machine state-db [])))))
 
 (defn get-path
-  "FIXME document get-path"
+  "Given a composed state machine hierarchy and a `state-db` which belongs to
+  that machine, retrieve the `StateMachine` and `state-db` in the hierarchy at
+  `path` (which might still identify a composed state machine hierarchy)."
   [machine state-db path]
   (when-let [result (reduce (fn [{:keys [machine state-db]} path-component]
                               (let [next-m (or (get-submachine machine path-component)
@@ -171,9 +174,9 @@
 (defn make-dispatcher
   [queue-atom]
   (s/fn dispatcher
-    ([event-id :- Event]
+    ([event-id :- EventId]
      (dispatcher event-id nil))
-    ([event-id :- Event dispatcher-arg]
+    ([event-id :- EventId dispatcher-arg]
      (fn dispatch
        ([]
         (dispatch nil))
@@ -196,38 +199,38 @@
         ;; will result in an arity error.
         (dispatch js-event))))))
 
-(s/defn translate-dispatcher [dispatcher event-id-translations-map :- {Event Event}]
+(s/defn translate-dispatcher [dispatcher event-id-translations-map :- {EventId EventId}]
   (s/fn
-    ([event-id :- Event]
+    ([event-id :- EventId]
      (if-let [event-id (get event-id-translations-map event-id event-id)]
        (dispatcher event-id)
        (fn [js-event] (println "translate-dispatcher suppressing event" event-id) nil)))
-    ([event-id :- Event dispatcher-args]
+    ([event-id :- EventId dispatcher-arg]
      (if-let [event-id (get event-id-translations-map event-id event-id)]
-       (dispatcher event-id dispatcher-args)
-       (fn [js-event] (println "translate-dispatcher suppressing event" event-id "with dispatcher-args" dispatcher-args) nil)))))
+       (dispatcher event-id dispatcher-arg)
+       (fn [js-event] (println "translate-dispatcher suppressing event" event-id "with dispatcher-arg" dispatcher-arg) nil)))))
 
 (defn consume-dispatch-queue
   "FIXME: document consume-dispatch-queue."
-  ([state-machine db dispatch-queue]
-   (consume-dispatch-queue state-machine db dispatch-queue nil))
-  ([state-machine db dispatch-queue ignored-fn]
+  ([state-machine db-atom dispatch-queue-atom]
+   (consume-dispatch-queue state-machine db-atom dispatch-queue-atom nil))
+  ([state-machine db-atom dispatch-queue-atom ignored-fn]
    (loop []
-     (when-let [the-event (util/dequeue! dispatch-queue)]
-       (swap! db (fn [db-val]
-                   (let [result (event state-machine
-                                       db-val
-                                       dispatch-queue
-                                       (:event-id the-event)
-                                       (:dispatcher-arg the-event)
-                                       (:event-arg the-event))]
-                     (when (and (= result db-val) ignored-fn)
-                       ;; FIXME pass state-machine and db-val, for more
-                       ;; informative goodness
-                       (ignored-fn (:event-id the-event)
-                                   (:dispatcher-arg the-event)
-                                   (:event-arg the-event)))
-                     result)))
+     (when-let [the-event (util/dequeue! dispatch-queue-atom)]
+       (swap! db-atom (fn [db]
+                        (let [result (event state-machine
+                                            db
+                                            dispatch-queue-atom
+                                            (:event-id the-event)
+                                            (:dispatcher-arg the-event)
+                                            (:event-arg the-event))]
+                          (when (and (= result db) ignored-fn)
+                            ;; FIXME pass state-machine and db, for more
+                            ;; informative goodness
+                            (ignored-fn (:event-id the-event)
+                                        (:dispatcher-arg the-event)
+                                        (:event-arg the-event)))
+                          result)))
        (recur)))))
 
 ;;;;
@@ -243,8 +246,8 @@
 (defn- pure-transition [db _ _ _] db)
 
 (s/defrecord Unit [machine-name :- s/Str
-                   start        :- State
-                   transitions  :- {State {Event [State (s/pred fn?)]}}]
+                   start        :- StateId
+                   transitions  :- {StateId {EventId [StateId (s/pred fn?)]}}]
   StateMachine
   (machine-name [_]
     machine-name)

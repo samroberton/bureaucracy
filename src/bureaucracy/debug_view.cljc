@@ -176,16 +176,21 @@
 ;;;; Debug state machine
 ;;;;
 
-(defn- select-sm-path [db _ path _]
-  (assoc-in db [:state-db :selected-path] path))
+(defmulti transition (fn [db event] (:id event)))
 
 (bcy/defmachine state-machine
-  :showing   {::hide           :hidden
-              ::minimise       :minimised
-              ::select-sm-path [:showing select-sm-path]}
-  :minimised {::hide     :hidden
-              ::restore  :showing}
-  :hidden    {::show :showing})
+  {:start         :showing
+   :transitions   {:showing   {::hide           :hidden
+                               ::minimise       :minimised
+                               ::select-sm-path :showing}
+                   :minimised {::hide    :hidden
+                               ::restore :showing}
+                   :hidden    {::show :showing}}
+   :transition-fn transition})
+
+(defmethod transition ::select-sm-path [db {:keys [dispatcher-arg]}]
+  (assoc-in db [:state-db :selected-path] dispatcher-arg))
+
 
 (def view-tree
   [{:state {[] :showing}
@@ -201,7 +206,7 @@
               :db             nil}
    :state-db {}})
 
-(defn dispatch-ignored [event-id dispatcher-arg event-arg]
+(defn dispatch-ignored [{:keys [event-id dispatcher-arg event-arg]}]
   #?(:clj
      (log/debug (str "Dispatch had no effect: {:event-id " (pr-str event-id) ", "
                      ":dispatcher-arg " (pr-str dispatcher-arg) ", "

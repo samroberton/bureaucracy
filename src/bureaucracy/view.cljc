@@ -1,6 +1,6 @@
 (ns bureaucracy.view
-  (:require [bureaucracy.core :refer [current-state get-path make-dispatcher matches-state?
-                                      translate-dispatcher]]))
+  (:require [bureaucracy.core :refer [current-state get-path matches-state?]]
+            [bureaucracy.dispatch :refer [translate-dispatcher]]))
 
 (defn- get-matching-state-db [state-machine db state-match-map]
   (let [[path state-match-rule]    (first state-match-map)
@@ -71,7 +71,7 @@
            state-db)
          extra-data))
 
-(defn render-view-tree [renderer state-machine dispatch-queue view-tree db]
+(defn render-view-tree [renderer state-machine dispatcher view-tree db]
   (letfn [(transform-views [view-items]
             (if (sequential? view-items)
               (first (remove nil? (map transform-views view-items)))
@@ -89,7 +89,7 @@
                                          {}
                                          subviews))})))]
     (let [transformed-view-item (transform-views view-tree)]
-      (render-view-item renderer (make-dispatcher dispatch-queue) (:app-db db) transformed-view-item))))
+      (render-view-item renderer dispatcher (:app-db db) transformed-view-item))))
 
 (deftype BasicViewRenderer []
   ViewRenderer

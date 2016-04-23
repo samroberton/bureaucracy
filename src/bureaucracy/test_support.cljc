@@ -3,24 +3,37 @@
             [bureaucracy.util :as util]
             [bureaucracy.view :as view]))
 
-(defn make-system [state-machine view-tree initial-db-val]
-  (let [db (atom initial-db-val)
-        q  (atom (util/queue))]
-    (swap! db #(bcy/start state-machine (:app-db %) q :init! nil nil))
-    {:db             db
-     :dispatch-queue q
-     :state-machine  state-machine
-     :view-tree      view-tree
-     :dispatcher     (bcy/make-dispatcher q)}))
+(defn make-event
+  ([event-id]
+   (make-event event-id nil nil))
+  ([event-id dispatcher-arg]
+   (make-event event-id dispatcher-arg nil))
+  ([event-id dispatcher-arg event-arg]
+   {:id             event-id
+    :dispatcher-arg dispatcher-arg
+    :event-arg      event-arg}))
 
-(defn render [{:keys [db dispatch-queue state-machine view-tree]}]
+(defn make-system [state-machine app-db]
+  (let [db (atom (bcy/start state-machine
+                            {:app-db   app-db
+                             :state-db {:state ::bcy/start}
+                             :outputs  []}
+                            nil))]
+    {:state-machine  state-machine
+     :db             db
+     :input!         (fn [& args]
+                       (swap! db #(bcy/input state-machine % (apply make-event args))))
+     :pop-output!    (fn []
+                       (util/dequeue-in! db [:outputs]))
+     :current-state  (fn [path]
+                       (:state (:state-db (bcy/get-path state-machine (:state-db @db) path))))
+     :matches-state? (fn [match-rule]
+                       (bcy/matches-state? match-rule state-machine (:state-db @db) path))}))
+
+
+(defn render [{:keys [db state-machine view-tree]}]
   (view/render-view-tree (bureaucracy.view.BasicViewRenderer.)
                          state-machine
-                         dispatch-queue
+                         dispatcher
                          view-tree
                          @db))
-
-(defn consume
-  "Consumes the current `system`'s dispatch queue."
-  [{:keys [db dispatch-queue state-machine]}]
-  (bcy/consume-dispatch-queue state-machine db dispatch-queue))

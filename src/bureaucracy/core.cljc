@@ -7,65 +7,100 @@
 ;;;; State Machine protocol definition
 ;;;;
 
-(s/defschema StateId
-  "State machine states are represented as keywords. While it's up to you, in
-  general, there's no need for state keywords to be namespaced."
+(s/defschema State
+  "State machine states are (non-namespaced) keywords."
   s/Keyword)
 
-(s/defschema EventId
-  "State machine transitions are triggered by events, which are also identified
-  by keywords.  When an event is dispatched by your application code, it is
-  passed to every (active) machine in your state machine hierarchy, so to avoid
-  accidental collisions between event names for different state machines, it is
-  recommended that event keywords be namespaced (eg `::update`, rather than
-  `:update`)."
+(s/defschema InputEventId
+  "State machine input events are identified by keywords.  When an input event
+  is dispatched by your application code, it is passed to every (active) machine
+  in your state machine hierarchy, so to avoid accidental collisions between
+  event names for different state machines, you may find it useful to use
+  namespaced keywords (eg `::bar` or `:foo/bar`, rather than `:bar`)."
   s/Keyword)
 
-(s/defrecord Event [id :- EventId, dispatcher-arg :- s/Any, event-arg :- s/Any])
+(s/defschema InputEvent
+  "An input into the state machine. `:id` is used to decide whether a state
+  machine transition applies from this input. `:dispatcher-arg` and `:event-arg`
+  are the arguments to the event (the difference is that `:dispatcher-arg` is
+  supplied at the time the dispatcher was created, and `:event-arg` is supplied
+  at the time the event fires. `:to-state` is supplied by the state machine
+  before the event is passed to a transition function, to tell the transition
+  function what state we're transitioning to. (You won't need `:to-state` very
+  often.)"
+  {:id InputEventId
+   :dispatcher-arg            s/Any
+   :event-arg                 s/Any
+   (s/optional-key :to-state) State})
 
-(defn single-event-arg [{:keys [dispatcher-arg event-arg]}]
+(defn single-event-arg
+  "The distinction between `:dispatcher-arg` and `:event-arg` is often not
+  relevant to the transition function: the function wants just one argument, and
+  doesn't care whether it was supplied when the dispatcher was created, or when
+  the event fired. Use this function to return that single argument."
+  [{:keys [dispatcher-arg event-arg]}]
   (if dispatcher-arg
     dispatcher-arg
     event-arg))
 
+(s/defschema OutputId
+  "State machine outputs are also identified by keywords."
+  s/Keyword)
+
 (s/defschema Output
-  {:id                           s/Keyword
-   (s/optional-key :handle-path) [s/Any]
-   s/Any                         s/Any})
+  "State machines publish `Output` events to interact with the outside world:
+  they are a way for your pure, side-effect free transition functions to inform
+  your application when a side-effect (such as an AJAX call) should occur."
+  {:id   OutputId
+   s/Any s/Any})
+
+(s/defschema DB
+  "A DB map contains all state machine state. `:app-db` contains state which is
+  considered 'global' to the application, whereas `:state-db` contains state
+  which is 'local' or 'private' to the state machine. When you have a state
+  machine hierarchy, each state machine in the hierarchy will be given a `DB`
+  with that machine's own `:state-db` -- it does not see other machines' 'local'
+  state."
+  {:app-db s/Any
+   :state-db {:state State, s/Any s/Any}
+   :outputs  [Output]})
 
 (defprotocol StateMachine
-  "A static (and immutable) specification of the behaviour of a state machine,
-  defining the mechanism for deciding a start state (depending on the current
-  value of the application DB) and the rules for transitioning between
-  states (including effects on the values of the application DB and state
-  machine state DB when those transitions occur)."
+  "A static (and immutable) specification of the behaviour of a state machine
+  (which might in fact be a hierarchy of state machines)."
   (machine-name [this]
     "The state machine's name (as a string) - for descriptive purposes only.")
-  (start [this app-db event]
-    "Given application state `app-db`, executes whatever might be needed to
-    start the state machine, given that the start is being caused by event
-    `event-id`, which has been dispatched with args `event-args`.
+  (start [this db input-event]
+    "Return the `DB` value to start the state machine, having constructed
+    whatever initial `:state-db` is required, and including whatever `:outputs`
+    should occur when the machine is started.
 
-    Returns a map of `{:app-db app-db, :state-db state-db}`, which you should
-    hold onto as the application's new DB value.")
-  (transition [this db event]
-    "Given a `db` containing the global application state (under `:app-db`), and
-    the current state machine state (under `:state-db`), effects any transitions
-    appropriate for `event-id` (which is being dispatched with the given
-    `event-args`), returning the new values of `app-db` and `state-db`.")
+    `start` will invoke the transition function in the same was as `input` does,
+    however the `input-event` will be an event with an `:id` of
+    `:bureaucracy.core/start` and an `:event-arg` which is this `input-event`
+    passed to this method.  If this is a top-level state machine, that's not
+    very important, but for state machines in a hierarchy, `start` could be
+    called as a result of a parent state machine transitioning. In that case,
+    this rule allows the child state machine to know what event has caused it to
+    be started.")
+  (input [this db input-event]
+    "Process the `input-event`, invoking any appropriate transition functions,
+    and return the new `DB` value.")
   (current-state [this state-db]
-    "FIXME: document current-state")
+    "Get the current `State` of this state machine from the `state-db`.")
   (get-submachine [this path-component]
-    "FIXME: document get-submachine")
+    "If this is a state machine hierarchy, get the machine lower in the
+    hierarchy at path `path-component`. An empty `path-component` should return
+    this machine.")
   (get-substate-db [this state-db path-component]
-    "FIXME: document get-substate-db
+    "If this is a state machine hierarchy, get the `state-db` of the machine
+    lower in the hierarchy at path `path-component`. An empty `path-component`
+    should return this machine's `state-db`."))
 
-    Returns nil if the machine is not currently in the given substate.
 
-    FIXME: 'Peer' has no choice but to allow the path-component it passes to its
-    child to be anything acceptable to `(current-state child pc)`. Should the
-    protocol require other state machines also to be this flexible? Ie should
-    Submachine accept :* as the path component?"))
+;;;;
+;;;; Functions on hierarchical state machines
+;;;;
 
 (defn- get-unit [machine]
   (let [next-m (get-submachine machine [])]
@@ -131,15 +166,27 @@
        :state-db (get-local-state machine state-db)})))
 
 (defn matches-state?
-  "FIXME document matches-state?"
+  "Does the state match the given match rule?
+
+  The state can be given directly as `state`, or indirectly, as the current
+  state of the machine located at path `path` in the state machine hierarchy
+  `machine`, which has `state-db` as its current state DB.
+
+  A match rule can be:
+    - `:*` to match any state,
+    - a State keyword, to match only that single state,
+    - a set of State keywords to match any of those several states,
+    - a function, which, given the state, should return truthy or falsey
+    - a map, in which case the `state` must be a map of the same shape, and
+      `matches-state?` will be called recursively on its contents."
   ([match-rule state]
-   (cond (= :* match-rule)     (boolean state)
-         (= match-rule state)  true
-         (map? match-rule)     (every? (fn [[k r]] (matches-state? r (get state k))) match-rule)
-         (ifn? match-rule)     (match-rule state)
-         :else                 (throw (ex-info "Unsupported match-rule"
-                                               {:match-rule match-rule
-                                                :state      state}))))
+   (cond (= :* match-rule)    (boolean state)
+         (= match-rule state) true
+         (map? match-rule)    (every? (fn [[k r]] (matches-state? r (get state k))) match-rule)
+         (ifn? match-rule)    (match-rule state)
+         :else                (throw (ex-info "Unsupported match-rule"
+                                              {:match-rule match-rule
+                                               :state      state}))))
   ([match-rule machine state-db path]
    (let [{:keys [machine state-db]} (get-path machine state-db path)]
      (when (and machine state-db)
@@ -147,164 +194,46 @@
 
 
 ;;;;
-;;;; Event dispatching
-;;;;
-
-;; FIXME Introduce a notion of an 'event-arg translator' to handle eg
-;; js/Event -> event-arg.
-
-(defn- translate-keycode [keycode]
-  (case keycode
-    13 :enter
-    27 :escape
-    keycode))
-
-#?(:cljs
-   (defn- translate-dom-input-value [input]
-     (case (.-type input)
-       "file"     (array-seq (.-files input))
-       "checkbox" (.-checked input)
-       (.-value input))))
-
-(defn extract-dispatched-value [maybe-js-event]
-  #?(:clj
-     ;; FIXME if it's a java.io.File, do some equivalent to JS file input?
-     maybe-js-event
-     :cljs
-     (if (and maybe-js-event
-              (exists? (aget js/window "Event"))
-              (or (instance? (aget js/window "Event") maybe-js-event)
-                  (instance? (aget js/window "Event") (aget maybe-js-event "nativeEvent"))))
-       (case (.-type maybe-js-event)
-         "blur"    (translate-dom-input-value (.-target maybe-js-event))
-         "change"  (translate-dom-input-value (.-target maybe-js-event))
-         "input"   (translate-dom-input-value (.-target maybe-js-event))
-         "keydown" (translate-keycode (.-which maybe-js-event))
-         "keyup"   (translate-keycode (.-which maybe-js-event))
-         nil)
-       maybe-js-event)))
-
-(defn make-dispatcher
-  [queue-atom]
-  (s/fn dispatcher
-    ([event-id :- EventId]
-     (dispatcher event-id nil))
-    ([event-id :- EventId dispatcher-arg]
-     (fn dispatch
-       ([]
-        (dispatch nil))
-       ([value]
-        (swap! queue-atom conj {:id             event-id
-                                :dispatcher-arg dispatcher-arg
-                                ;; FIXME perhaps parameterise with a
-                                ;; user-supplied function to combine
-                                ;; dispatcher-arg and event-arg, also plugging in
-                                ;; extract-dispatched-value?  Or maybe
-                                ;; dispatcher-arg is always either a keyword, a
-                                ;; path, or a function, and keyword/path get you
-                                ;; a map?
-                                :event-arg      (extract-dispatched-value value)})
-        nil)
-       ([js-event & args]
-        ;; React calls event handlers with the SyntheticEvent as the first arg
-        ;; and DOM ID as the second (and sometime js/Event as the third?). We
-        ;; don't want the dom-id, but not supplying the two-/three-arg function
-        ;; will result in an arity error.
-        (dispatch js-event))))))
-
-(s/defn translate-dispatcher [dispatcher event-id-translations-map :- {EventId EventId}]
-  (s/fn
-    ([event-id :- EventId]
-     (if-let [event-id (get event-id-translations-map event-id event-id)]
-       (dispatcher event-id)
-       (fn [js-event] (println "translate-dispatcher suppressing event" event-id) nil)))
-    ([event-id :- EventId dispatcher-arg]
-     (if-let [event-id (get event-id-translations-map event-id event-id)]
-       (dispatcher event-id dispatcher-arg)
-       (fn [js-event] (println "translate-dispatcher suppressing event" event-id "with dispatcher-arg" dispatcher-arg) nil)))))
-
-(defn handle-outputs [{:keys [outputs] :as db} dispatch-queue-atom output-fn]
-  (when (seq outputs)
-    (when-not (sequential? outputs)
-      (throw (ex-info ":outputs result from a transition function should be a seq"
-                      {:outputs outputs
-                       :result  db})))
-    (let [dispatcher (make-dispatcher dispatch-queue-atom)]
-      (doseq [out outputs]
-        (output-fn dispatcher (:app-db db) out))))
-  (dissoc db :outputs))
-
-(defn init!
-  "FIXME: document init!"
-  ([state-machine app-db dispatch-queue-atom output-fn]
-   (init! state-machine app-db dispatch-queue-atom output-fn :init! nil))
-  ([state-machine app-db dispatch-queue-atom output-fn event-id event-arg]
-   (-> (start state-machine app-db {:id             event-id
-                                    :dispatcher-arg nil
-                                    :event-arg      event-arg})
-       (handle-outputs dispatch-queue-atom output-fn))))
-
-(defn consume-dispatch-queue
-  "FIXME: document consume-dispatch-queue."
-  ([state-machine db-atom dispatch-queue-atom output-fn]
-   (consume-dispatch-queue state-machine db-atom dispatch-queue-atom output-fn nil))
-  ([state-machine db-atom dispatch-queue-atom output-fn ignored-fn]
-   (loop []
-     (when-let [event (util/dequeue! dispatch-queue-atom)]
-       (swap! db-atom
-              (fn [db]
-                (let [result (transition state-machine db event)]
-                  (when (and (= result db) ignored-fn)
-                    ;; FIXME pass state-machine and db, for more
-                    ;; informative goodness
-                    (ignored-fn event))
-                  (handle-outputs result dispatch-queue-atom output-fn))))
-       (recur)))))
-
-;;;;
 ;;;; Unit State Machine
 ;;;;
 
 (s/defschema StateChoiceFn
-  (s/make-fn-schema StateId
-                    [[(s/one s/Any 'db) (s/one Event 'event)]]))
+  (s/make-fn-schema State [[(s/one s/Any 'db) (s/one InputEvent 'event)]]))
 
 (s/defschema TransitionFn
-  (s/make-fn-schema {:app-db                   s/Any
-                     :state-db                 s/Any
-                     (s/optional-key :output)  [Output]}
-                    [[(s/one s/Any 'db) (s/one Event 'event)]]))
+  (s/make-fn-schema DB [[(s/one s/Any 'db) (s/one InputEvent 'event)]]))
 
-(s/defrecord TransitionSpec [target-states   :- #{StateId}
-                             state-choice-fn :- StateChoiceFn])
+(s/defschema TransitionSpec
+  {:target-states   #{State}
+   :state-choice-fn StateChoiceFn})
 
 (s/defrecord Unit [machine-name  :- s/Str
                    start-state   :- TransitionSpec
-                   transitions   :- {StateId {EventId TransitionSpec}}
+                   transitions   :- {State {InputEventId TransitionSpec}}
                    transition-fn :- TransitionFn
                    outputs       :- #{s/Keyword}]
   StateMachine
   (machine-name [_]
     machine-name)
-  (start [_ app-db event]
-    (let [event (if (= ::start (:id event))
-                  event
-                  (merge {:id ::start, :dispatcher-arg nil, :event-arg nil}
-                         (when event {:start-trigger event})))
-          db    {:app-db   app-db
-                 :state-db {:state ((:state-choice-fn start-state) {:app-db app-db} event)}}]
-      (transition-fn db (assoc event :to-state start-state))))
-  (transition [this db event]
+  (start [_ db input-event]
+    (let [input-event (if (= ::start (:id input-event))
+                        input-event
+                        {:id ::start, :dispatcher-arg nil, :event-arg input-event})
+          to-state ((:state-choice-fn start-state) db input-event)]
+      (-> db
+          (assoc-in [:state-db :state] to-state)
+          (transition-fn (assoc input-event :to-state to-state)))))
+  (input [this db input-event]
     (let [orig-state     (:state (:state-db db))
           transition-map (get transitions orig-state)]
       (when-not transition-map
         (throw (ex-info (str "Invalid state machine state: " orig-state)
                         {:machine this, :state orig-state})))
-      (if-let [{:keys [state-choice-fn]} (get transition-map (:id event))]
-        (let [new-state (state-choice-fn db event)]
-          (-> (transition-fn db (assoc event :to-state new-state))
+      (if-let [{:keys [state-choice-fn]} (get transition-map (:id input-event))]
+        (let [new-state (state-choice-fn db input-event)]
+          (-> (transition-fn db (assoc input-event :to-state new-state))
               (assoc-in [:state-db :state] new-state)))
-        ;; This state-machine doesn't have a transition for this event.
+        ;; This state-machine doesn't have a transition for this input-event.
         db)))
   (current-state [this state-db]
     (:state state-db))
@@ -318,14 +247,14 @@
 
 (s/defn ^:private interpret-transition-spec :- TransitionSpec [spec]
   (cond (keyword? spec)
-        (map->TransitionSpec {:target-states   #{spec}
-                              :state-choice-fn (constantly spec)})
+        {:target-states   #{spec}
+         :state-choice-fn (constantly spec)}
         (and (vector? spec) (set? (first spec)) (= 2 (count spec)))
         (let [[target-states state-choice-fn] spec]
-          (map->TransitionSpec {:target-states   target-states
-                                :state-choice-fn state-choice-fn}))
+          {:target-states   target-states
+           :state-choice-fn state-choice-fn})
         (map? spec)
-        (map->TransitionSpec spec)
+        spec
         :else
         (throw (ex-info (str "Unable to interpret transition spec" (pr-str spec))
                         {:spec spec}))))
@@ -334,20 +263,27 @@
 (s/defn unit :- (s/protocol StateMachine)
   "Create a basic state machine defined by the given transitions.
 
-  `start` is either a keyword defining the machine's start state, or a function
-  to be called when the state machine starts.  The function must accept an
-  app-db and dispatch function and return `{:app-db app-db, :state-db
-  state-db}`, thereby defining both the start state (as a `:state` key in
-  state-db) and the new value of the `app-db` once the machine's start state has
-  been entered.
+  `start` is either a keyword defining the machine's start state, or (set of
+  States, choice function) pair, such as:
+      [#{:state-A :state-B} (fn [db input-event]
+                              (if (some-condition? input-event)
+                                :state-A
+                                :state-B))]
 
-  `transitions` is a map of `State`s to transitions which can occur in those
-  state. The transitions themselves are either bare keywords (defining the 'to'
-  state) or [keyword function] pairs, where the function is a transition
-  function, to be called when the transition occurs."
+  `transitions` is a map from `State` to a map of transitions which can occur in
+  that state. Each key/value pair in the transition map for a given state
+  defines the `InputEventId` which causes the transition, and the transition's
+  result `State` (which may be the same as its start state -- ie explicit
+  self-transitions are allowed).  Like for the definition of `start`, the
+  transition's result state can be defined as a (set of States, choice function)
+  pair.
+
+  `transition-fn` will be called whenever a transition in the map occurs.
+
+  `outputs` is a set of `OutputId`s that the transition function may produce."
   [{:keys [machine-name start transitions transition-fn outputs]}]
   (map->Unit {:machine-name  machine-name
-              :start         (interpret-transition-spec start)
+              :start-state   (interpret-transition-spec start)
               :transitions   (into {}
                                    (for [[from-state tmap] transitions]
                                      [from-state
@@ -413,14 +349,14 @@
   StateMachine
   (machine-name [_]
     (machine-name machine))
-  (start [_ app-db event]
-    (let [lensed-db (-get lens app-db)
-          result    (start machine lensed-db event)]
-      (update-in result [:app-db] (partial -put lens app-db))))
-  (transition [_ db event]
-    (let [lensed-db (-get lens (:app-db db))
-          result    (transition machine (assoc db :app-db lensed-db) event)]
-      (update-in result [:app-db] (partial -put lens (:app-db db)))))
+  (start [_ db input-event]
+    (let [lensed-app-db (-get lens (:app-db db))
+          result        (start machine (assoc db :app-db lensed-app-db) input-event)]
+      (update result :app-db (partial -put lens (:app-db db)))))
+  (input [_ db input-event]
+    (let [lensed-app-db (-get lens (:app-db db))
+          result        (input machine (assoc db :app-db lensed-app-db) input-event)]
+      (update result :app-db (partial -put lens (:app-db db)))))
   (current-state [_ state-db]
     (current-state machine state-db))
   (get-submachine [_ path-component]
@@ -429,7 +365,12 @@
     (get-substate-db machine state-db path-component)))
 
 (defn with-lens
-  "FIXME: with-lens docstring."
+  "Wrap another StateMachine, such that calls to `start` and `input` apply the
+  given `lens` to the DB's `:app-db` value.  This allows us to write re-useable
+  state machines which expect certain data to be available in a certain format
+  in the `:app-db`, and to plug them into state machine hierarchies that in fact
+  don't structure the data that way.  We simply wrap our re-useable machines
+  with a lens which conforms to our machine's expectation."
   [lens machine]
   (LensedStateMachine. lens machine))
 
@@ -444,73 +385,56 @@
   StateMachine
   (machine-name [_]
     (machine-name machine))
-  (start [_ app-db event]
-    (let [machine-result (start machine app-db event)
+  (start [_ db input-event]
+    (let [machine-result (start machine db input-event)
           state          (:state (:state-db machine-result))]
       (if-let [{:keys [submachine sublens]} (get submachines state)]
         (let [submachine-result (start submachine
-                                       (:app-db (if sublens
-                                                  (-get sublens machine-result)
-                                                  machine-result))
-                                       event)]
-          ;; FIXME if sublens results in child's app-db update being put in
-          ;; state-db instead, it will be silently dropped
+                                       (assoc-in (-get sublens machine-result)
+                                                 [:state-db :state] ::start)
+                                       input-event)]
           (-> machine-result
-              (assoc-in [:app-db] (:app-db (-put sublens machine-result submachine-result)))
+              (assoc :app-db (:app-db (-put sublens machine-result submachine-result)))
               (assoc-in [:state-db ::submachine-db] (:state-db submachine-result))
               (update :outputs concat (:outputs submachine-result))))
         machine-result)))
-  (transition [_ db event]
-    (let [machine-db                   (update-in db [:state-db] dissoc ::submachine-db)
-          machine-result               (transition machine machine-db event)
+  (input [_ db input-event]
+    (let [machine-db                   (update db :state-db dissoc ::submachine-db)
+          machine-result               (input machine machine-db input-event)
           state                        (:state (:state-db machine-result))
           {:keys [submachine sublens]} (get submachines state)]
       (cond
-        ;; no submachine for this state: no more to do
+        ;; There is no submachine for this state: no more to do.
         (not submachine)
         machine-result
 
-        ;; `machine` didn't transition: give the submachine a go instead
-        (= machine-result machine-db)
-        (let [lensed-db     (-get sublens machine-db)
-              submachine-db {:app-db   (:app-db lensed-db)
-                             :state-db (::submachine-db (:state-db db))}]
-          (let [submachine-result (transition submachine submachine-db event)]
-            ;; FIXME if sublens results in child's app-db update being put in
-            ;; state-db instead, it will be silently dropped
-            (-> db
-                (assoc-in [:state-db ::submachine-db] (:state-db submachine-result))
-                (assoc :app-db (:app-db (-put sublens machine-db submachine-result)))
-                (update :outputs concat (:outputs submachine-result)))))
-
         ;; `machine`'s state is unchanged after the transition: give the
-        ;; submachine a go as well
+        ;; submachine a go as well.
         (= (:state (:state-db machine-result))
            (:state (:state-db db)))
-        (let [lensed-db     (-get sublens machine-result)
-              submachine-db {:app-db   (:app-db lensed-db)
-                             :state-db (::submachine-db (:state-db db))}
-              submachine-result (transition submachine submachine-db event)]
-          ;; FIXME if sublens results in child's app-db update being put in
-          ;; state-db instead, it will be silently dropped
+        (let [lensed-db         (-get sublens machine-result)
+              submachine-db     {:app-db   (:app-db lensed-db)
+                                 :state-db (::submachine-db (:state-db db))
+                                 :outputs  []}
+              submachine-result (input submachine submachine-db input-event)]
           (-> machine-result
-              (assoc-in [:state-db ::submachine-db] (:state-db submachine-result))
               (assoc :app-db (:app-db (-put sublens machine-result submachine-result)))
+              (assoc-in [:state-db ::submachine-db] (:state-db submachine-result))
               (update :outputs concat (:outputs submachine-result))))
 
-        ;; `machine`'s state changed: we're entering a new substate
+        ;; `machine`'s state changed: we're entering a new substate.
         :else
-        (let [submachine-result (start submachine
-                                       (:app-db (-get sublens machine-result))
-                                       {:id             ::start
-                                        :dispatcher-arg nil
-                                        :event-arg      nil
-                                        :start-trigger  event})]
-          ;; FIXME if sublens results in child's app-db update being put in
-          ;; state-db instead, it will be silently dropped
+        (let [lensed-db         (-get sublens machine-result)
+              submachine-db     {:app-db   (:app-db lensed-db)
+                                 :state-db (::submachine-db (:state-db db))
+                                 :outputs  []}
+              start-event       (if (= ::start (:id input-event))
+                                  input-event
+                                  {:id ::start, :dispatcher-arg nil, :event-arg input-event})
+              submachine-result (start submachine submachine-db start-event)]
           (-> machine-result
-              (assoc-in [:state-db ::submachine-db] (:state-db submachine-result))
               (assoc :app-db (:app-db (-put sublens machine-result submachine-result)))
+              (assoc-in [:state-db ::submachine-db] (:state-db submachine-result))
               (update :outputs concat (:outputs submachine-result)))))))
   (current-state [_ state-db]
     (current-state machine (dissoc state-db ::submachine-db)))
@@ -540,7 +464,22 @@
           (::submachine-db state-db))))
 
 (defn with-substates
-  "FIXME: with-substates docstring."
+  "Associates a child machine with one or more of the states of the primary
+  StateMachine `machine`.
+
+  `submachines` is a map from `State` to the child machine which is active while
+  the parent is in that state.  When the primary machine transitions to a state
+  which has a child machine, the child machine's `start` method will be called,
+  with an `input-event` with `:id` `:bureaucracy.core/start`, and an
+  `:event-arg` which is the event which has caused the primary machine to
+  transition.
+
+  Each child machine can be specified either as a bare `StateMachine`, or as
+  `{:submachine <machine>, :sublens <lens>}`, to additionally specify a lens to
+  apply to the DB when invoking the submachine.  Note that the lens here is used
+  slightly differently than in a StateMachine wrapped by `with-lens`: here, the
+  lens is applied to the whole DB, in order to allow that the parent's
+  `:state-db` to be lensed into the child's `:app-db`."
   [machine submachines]
   (Submachine. machine (into {} (for [[k sm] submachines]
                                   [k (if (satisfies? StateMachine sm)
@@ -552,43 +491,35 @@
 ;;;; Peer State Machines
 ;;;;
 
+(defn- invoke-peer-input-fn [submachines invoke-fn db input-event]
+  (let [results (reduce (fn [accum [name machine]]
+                          (let [result (invoke-fn machine
+                                                  (assoc (dissoc accum :state-dbs)
+                                                         :state-db (-> (:state-db db)
+                                                                       ::submachine-dbs
+                                                                       (get name)))
+                                                  input-event)]
+                            (assoc (dissoc result :state-db)
+                                   :state-dbs (assoc (:state-dbs accum)
+                                                     name (:state-db result)))))
+                        (assoc (dissoc db :state-db) :state-dbs {})
+                        submachines)]
+    (assoc results :state-db {:state :peer, ::submachine-dbs (:state-dbs results)})))
+
 (s/defrecord Peer [machine-name :- s/Any
-                   submachines  :- [[(s/one s/Any 'name) (s/one (s/protocol StateMachine) 'machine)]]]
+                   submachines  :- [[(s/one s/Any 'name)
+                                     (s/one (s/protocol StateMachine) 'machine)]]]
   StateMachine
   (machine-name [_]
     machine-name)
-  (start [_ app-db event]
-    (let [results (reduce (fn [accum [name machine]]
-                            (let [result (start machine (:app-db accum) event)]
-                              {:app-db    (:app-db result)
-                               :state-dbs (assoc (:state-dbs accum) name (:state-db result))
-                               :outputs   (concat (:outputs accum) (:outputs result))}))
-                          {:app-db app-db, :state-dbs {}, :outputs []}
-                          submachines)]
-      (merge {:app-db   (:app-db results)
-              :state-db {:state           :peer
-                         ::submachine-dbs (:state-dbs results)}}
-             (when-let [outs (seq (:outputs results))]
-               {:outputs outs}))))
-  (transition [_ db event]
-    (let [results (reduce (fn [accum [name machine]]
-                            (let [result (transition machine
-                                                     {:app-db   (:app-db accum)
-                                                      :state-db (-> db
-                                                                    :state-db
-                                                                    ::submachine-dbs
-                                                                    (get name))}
-                                                     event)]
-                              {:app-db    (:app-db result)
-                               :state-dbs (assoc (:state-dbs accum) name (:state-db result))
-                               :outputs   (concat (:outputs accum) (:outputs result))}))
-                          {:app-db (:app-db db), :state-dbs {}, :outputs []}
-                          submachines)]
-      (merge {:app-db   (:app-db results)
-              :state-db {:state           :peer
-                         ::submachine-dbs (:state-dbs results)}}
-             (when-let [outs (seq (:outputs results))]
-               {:outputs outs}))))
+  (start [_ db input-event]
+    (let [db (assoc-in db
+                       [:state-db ::submachine-dbs]
+                       (apply merge (for [[k _] submachines]
+                                      {k {:state ::start}})))]
+       (invoke-peer-input-fn submachines start db input-event)))
+  (input [_ db input-event]
+    (invoke-peer-input-fn submachines input db input-event))
   (current-state [this state-db]
     (apply merge (for [[k sm] submachines]
                    {k (current-state sm (get (::submachine-dbs state-db) k))})))
@@ -636,6 +567,7 @@
                           {:machine this, :path-component path-component})))))
 
 (defn peer
-  "FIXME: peer docstring."
+  "Create a single StateMachine which operates multiple child state machines
+  independently of one another."
   [machine-name & names-and-machines]
   (Peer. machine-name (partition 2 names-and-machines)))

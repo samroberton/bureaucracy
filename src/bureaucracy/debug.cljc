@@ -1,78 +1,87 @@
 (ns bureaucracy.debug
-  (:require [bureaucracy.core :refer [current-state get-submachine get-substate-db event start
-                                      #?(:cljs StateMachine)]]
-            [schema.core :as s])
-  #?@(:clj
-      [(:require [clojure.tools.logging :as log])
-       (:import bureaucracy.core.StateMachine)]))
-
-#?(:cljs
-   (def debug (.-log js/console))
-   :clj
-   (defmacro debug [& args] `(log/debug ~@args)))
-
-#?(:cljs
-   (def info (.-log js/console))
-   :clj
-   (defmacro info [& args] `(log/info ~@args)))
-
-#?(:cljs
-   (def error (.-log js/console))
-   :clj
-   (defmacro error [& args] `(log/error ~@args)))
+  (:require [bureaucracy.core :as bcy]
+            [bureaucracy.util :as util]
+            [schema.core :as s]))
 
 
 ;;;;
 ;;;; TracingStateMachine, for debugging purposes
 ;;;;
 
-(s/defrecord Tracing [name machine :- (s/protocol StateMachine)]
-  StateMachine
-  (start [_ app-db dispatch-queue event-id dispatcher-arg event-arg]
-    (let [result (start machine app-db dispatch-queue event-id dispatcher-arg event-arg)]
-      (if (= (:app-db result) app-db)
-        (info "StateMachine " name " (start ...) returned unchanged app-db, "
-              "state-db: " (:state-db result))
-        (info "StateMachine " name " (start ...) returned: " result))
+(s/defrecord Tracing [name machine :- (s/protocol bcy/StateMachine)]
+  bcy/StateMachine
+  (start [_ db input-event]
+    (let [result (bcy/start machine db input-event)]
+      (if (= (:app-db result) (:app-db db))
+        (util/info "StateMachine " name " (start ...) returned unchanged app-db, "
+                   "state-db: " (:state-db result))
+        (util/info "StateMachine " name " (start ...) returned: " result))
       result))
-  (event [_ db dispatch-queue event-id dispatcher-arg event-arg]
-    (when-not db
-      (throw (ex-info "StateMachine/event is being called with a nil db."
-                      {:state-machine-name name, :event-id event-id})))
-    (when-not (:app-db db)
-      (throw (ex-info "StateMachine/event is being called with a nil app-db."
-                      {:state-machine-name name, :event-id event-id, :db db})))
-    (let [result (event machine db dispatch-queue event-id dispatcher-arg event-arg)]
+  (input [_ db input-event]
+    (let [result (bcy/input machine db input-event)]
       (cond
         (not result)
-        (error "StateMachine" name "(event ...) returned a nil db for event-id" event-id)
+        (util/error "StateMachine" name "(input ...) returned a nil db for input-event-id"
+                    (:id input-event))
 
         (not (:app-db result))
-        (error "StateMachine" name "(event ...) returned a nil :app-db for event-id" event-id)
+        (util/error "StateMachine" name "(input ...) returned a nil :app-db for input-event-id"
+                    (:id input-event))
 
         (not (:state-db result))
-        (error "StateMachine" name "(event ...) returned a nil :state-db for event-id"
-               event-id)
+        (util/error "StateMachine" name "(input ...) returned a nil :state-db for input-event-id"
+                    (:id input-event))
 
         (= result db)
-        (debug "StateMachine" name "(event ...) took no action for event-id" event-id)
+        (util/debug "StateMachine" name "(input ...) took no action for input-event-id"
+                    (:id input-event))
 
         (= (:app-db result) (:app-db db))
-        (debug "StateMachine" name "(event ...) returned unchanged app-db for event-id" event-id
-               "with new state-db:" (:state-db result))
+        (util/debug "StateMachine" name "(input ...) returned unchanged app-db for input-event-id"
+                    (:id input-event) "with new state-db:" (:state-db result))
 
         :else
-        (debug "StateMachine" name "(event ...) returned a new db for event-id" event-id ":"
-               result))
+        (util/debug "StateMachine" name "(input ...) returned a new db for input-event-id"
+                    (:id input-event) ":" result))
       result))
   (current-state [_ state-db]
-    (current-state machine state-db))
+    (bcy/current-state machine state-db))
   (get-submachine [_ path-component]
-    (get-submachine machine path-component))
+    (bcy/get-submachine machine path-component))
   (get-substate-db [_ state-db path-component]
-    (get-substate-db machine state-db path-component)))
+    (bcy/get-substate-db machine state-db path-component)))
 
 (defn tracing
   "FIXME: tracing docstring."
   [name machine]
   (Tracing. name machine))
+
+
+(s/defrecord WarnOnIgnoredInputEvent [name machine :- (s/protocol bcy/StateMachine)]
+  bcy/StateMachine
+  (start [_ db input-event]
+    (let [result (bcy/start machine db input-event)]
+      (when (= result db)
+        (util/info (str "Ignored input event: StateMachine " name
+                        " (start ...) returned an unchanged DB for event "
+                        (pr-str input-event))))
+      result))
+  (input [_ db input-event]
+    (let [result (bcy/input machine db input-event)]
+      (when (= result db)
+        (util/info (str "Ignored input event: StateMachine " name
+                        " (input ...) returned an unchanged DB for event "
+                        (pr-str input-event))))
+      result))
+  (current-state [_ state-db]
+    (bcy/current-state machine state-db))
+  (get-submachine [_ path-component]
+    (bcy/get-submachine machine path-component))
+  (get-substate-db [_ state-db path-component]
+    (bcy/get-substate-db machine state-db path-component)))
+
+(defn warn-on-ignored-input
+  ([machine]
+   (warn-on-ignored-input (bcy/machine-name machine) machine))
+  ([name machine]
+   (WarnOnIgnoredInputEvent. name machine)))

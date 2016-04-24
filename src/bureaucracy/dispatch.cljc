@@ -1,5 +1,6 @@
 (ns bureaucracy.dispatch
   (:require [bureaucracy.core :as bcy]
+            [bureaucracy.util :as util]
             [schema.core :as s]))
 
 ;;;;
@@ -101,6 +102,9 @@
   (add-watch db-atom
              ::output-handler
              (fn [_ _ _ db]
-               (when-let [outputs (seq (:outputs db))]
-                 (when (compare-and-set! db-atom db (assoc db :outputs []))
+               (when-let [outputs (not-empty (:outputs db))]
+                 (when (compare-and-set! db-atom db (assoc db :outputs (util/queue)))
                    (handle-outputs output-handler dispatcher db))))))
+
+(defn remove-auto-handle-outputs [db-atom]
+  (remove-watch db-atom ::output-handler))

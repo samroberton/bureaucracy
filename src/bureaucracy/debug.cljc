@@ -1,15 +1,15 @@
 (ns bureaucracy.debug
-  (:require [bureaucracy.core :as bcy]
-            [bureaucracy.util :as util]
-            [schema.core :as s]))
+  (:require [bureaucracy.core :as bcy #?@(:cljs [:refer [StateMachine]])]
+            [bureaucracy.util :as util])
+  #?(:clj (:import bureaucracy.core.StateMachine)))
 
 
 ;;;;
 ;;;; TracingStateMachine, for debugging purposes
 ;;;;
 
-(s/defrecord Tracing [name machine :- (s/protocol bcy/StateMachine)]
-  bcy/StateMachine
+(defrecord Tracing [name machine]
+  StateMachine
   (start [_ db input-event]
     (let [result (bcy/start machine db input-event)]
       (if (= (:app-db result) (:app-db db))
@@ -57,8 +57,8 @@
   (Tracing. name machine))
 
 
-(s/defrecord WarnOnIgnoredInputEvent [name machine :- (s/protocol bcy/StateMachine)]
-  bcy/StateMachine
+(defrecord WarnOnIgnoredInputEvent [name machine]
+  StateMachine
   (start [_ db input-event]
     (let [result (bcy/start machine db input-event)]
       (when (= result db)

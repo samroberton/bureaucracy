@@ -61,9 +61,18 @@
   machine hierarchy, each state machine in the hierarchy will be given a `DB`
   with that machine's own `:state-db` -- it does not see other machines' 'local'
   state."
-  {:app-db s/Any
+  {:app-db   s/Any
    :state-db {:state State, s/Any s/Any}
    :outputs  [Output]})
+
+(s/defn init-db :- DB
+  "Produce a starting db which satisfies the `DB` schema."
+  ([]
+   (init-db nil))
+  ([app-db]
+   {:app-db   app-db
+    :state-db {:state ::start}
+    :outputs  (util/queue)}))
 
 (defprotocol StateMachine
   "A static (and immutable) specification of the behaviour of a state machine
@@ -123,7 +132,8 @@
   [machine path]
   (some-> (reduce (fn [machine path-component]
                     (or (get-submachine machine path-component)
-                        (throw (ex-info "Invalid path"
+                        (throw (ex-info (str "Invalid path: "
+                                             (pr-str path-component))
                                         {:machine        machine
                                          :path-component path-component}))))
                   machine
@@ -152,7 +162,8 @@
   [machine state-db path]
   (when-let [result (reduce (fn [{:keys [machine state-db]} path-component]
                               (let [next-m (or (get-submachine machine path-component)
-                                               (throw (ex-info "Invalid path"
+                                               (throw (ex-info (str "Invalid path: "
+                                                                    (pr-str path-component))
                                                                {:machine        machine
                                                                 :path-component path-component})))
                                     next-s (get-substate-db machine state-db path-component)]
@@ -184,7 +195,7 @@
          (= match-rule state) true
          (map? match-rule)    (every? (fn [[k r]] (matches-state? r (get state k))) match-rule)
          (ifn? match-rule)    (match-rule state)
-         :else                (throw (ex-info "Unsupported match-rule"
+         :else                (throw (ex-info (str "Unsupported match-rule: " (pr-str match-rule))
                                               {:match-rule match-rule
                                                :state      state}))))
   ([match-rule machine state-db path]
@@ -256,7 +267,7 @@
         (map? spec)
         spec
         :else
-        (throw (ex-info (str "Unable to interpret transition spec" (pr-str spec))
+        (throw (ex-info (str "Unable to interpret transition spec: " (pr-str spec))
                         {:spec spec}))))
 
 
@@ -415,7 +426,7 @@
         (let [lensed-db         (-get sublens machine-result)
               submachine-db     {:app-db   (:app-db lensed-db)
                                  :state-db (::submachine-db (:state-db db))
-                                 :outputs  []}
+                                 :outputs  (util/queue)}
               submachine-result (input submachine submachine-db input-event)]
           (-> machine-result
               (assoc :app-db (:app-db (-put sublens machine-result submachine-result)))
@@ -427,7 +438,7 @@
         (let [lensed-db         (-get sublens machine-result)
               submachine-db     {:app-db   (:app-db lensed-db)
                                  :state-db (::submachine-db (:state-db db))
-                                 :outputs  []}
+                                 :outputs  (util/queue)}
               start-event       (if (= ::start (:id input-event))
                                   input-event
                                   {:id ::start, :dispatcher-arg nil, :event-arg input-event})

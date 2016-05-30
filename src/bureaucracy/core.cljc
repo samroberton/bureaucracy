@@ -61,9 +61,9 @@
   machine hierarchy, each state machine in the hierarchy will be given a `DB`
   with that machine's own `:state-db` -- it does not see other machines' 'local'
   state."
-  {:app-db   s/Any
-   :state-db {:state State, s/Any s/Any}
-   :outputs  [Output]})
+  {:app-db                   s/Any
+   :state-db                 {:state State, s/Any s/Any}
+   (s/optional-key :outputs) [Output]})
 
 (s/defn init-db :- DB
   "Produce a starting db which satisfies the `DB` schema."

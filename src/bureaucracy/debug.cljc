@@ -1,7 +1,6 @@
 (ns bureaucracy.debug
-  (:require [bureaucracy.core :as bcy #?@(:cljs [:refer [StateMachine]])]
-            [bureaucracy.util :as util])
-  #?(:clj (:import bureaucracy.core.StateMachine)))
+  (:require [bureaucracy.core :as bcy]
+            [bureaucracy.util :as util]))
 
 
 ;;;;
@@ -9,40 +8,42 @@
 ;;;;
 
 (defrecord Tracing [name machine]
-  StateMachine
+  bcy/StateMachine
   (start [_ db input-event]
     (let [result (bcy/start machine db input-event)]
       (if (= (:app-db result) (:app-db db))
-        (util/info "StateMachine " name " (start ...) returned unchanged app-db, "
-                   "state-db: " (:state-db result))
-        (util/info "StateMachine " name " (start ...) returned: " result))
+        (util/infof "StateMachine %s (start ...) returned unchanged app-db, state-db: %s"
+                    name (pr-str (:state-db result)))
+        (util/infof "StateMachine %s (start ...) returned: %s"
+                    name (pr-str result)))
       result))
   (input [_ db input-event]
     (let [result (bcy/input machine db input-event)]
       (cond
         (not result)
-        (util/error "StateMachine" name "(input ...) returned a nil db for input-event-id"
-                    (:id input-event))
+        (util/errorf "StateMachine %s (input ...) returned a nil db for input-event-id %s."
+                     name (pr-str (:id input-event)))
 
         (not (:app-db result))
-        (util/error "StateMachine" name "(input ...) returned a nil :app-db for input-event-id"
-                    (:id input-event))
+        (util/errorf "StateMachine %s (input ...) returned a nil :app-db for input-event-id %s."
+                      name (pr-str (:id input-event)))
 
         (not (:state-db result))
-        (util/error "StateMachine" name "(input ...) returned a nil :state-db for input-event-id"
-                    (:id input-event))
+        (util/errorf "StateMachine %s (input ...) returned a nil :state-db for input-event-id %s."
+                      name (pr-str (:id input-event)))
 
         (= result db)
-        (util/debug "StateMachine" name "(input ...) took no action for input-event-id"
-                    (:id input-event))
+        (util/debugf "StateMachine %s (input ...) took no action for input-event-id %s."
+                     name (pr-str (:id input-event)))
 
         (= (:app-db result) (:app-db db))
-        (util/debug "StateMachine" name "(input ...) returned unchanged app-db for input-event-id"
-                    (:id input-event) "with new state-db:" (:state-db result))
+        (util/debugf (str "StateMachine %s (input ...) returned unchanged app-db for "
+                          "input-event-id %s with new state-db: %s")
+                     name (pr-str (:id input-event)) (pr-str (:state-db result)))
 
         :else
-        (util/debug "StateMachine" name "(input ...) returned a new db for input-event-id"
-                    (:id input-event) ":" result))
+        (util/debugf "StateMachine %s (input ...) returned a new db for input-event-id %s: %s."
+                      name (pr-str (:id input-event)) (pr-str result)))
       result))
   (current-state [_ state-db]
     (bcy/current-state machine state-db))
@@ -58,20 +59,20 @@
 
 
 (defrecord WarnOnIgnoredInputEvent [name machine]
-  StateMachine
+  bcy/StateMachine
   (start [_ db input-event]
     (let [result (bcy/start machine db input-event)]
       (when (= result db)
-        (util/info (str "Ignored input event: StateMachine " name
-                        " (start ...) returned an unchanged DB for event "
-                        (pr-str input-event))))
+        (util/infof (str "Ignored input event: StateMachine %s (start ...) returned an unchanged "
+                         "DB for event %s.")
+                    name (pr-str input-event)))
       result))
   (input [_ db input-event]
     (let [result (bcy/input machine db input-event)]
       (when (= result db)
-        (util/info (str "Ignored input event: StateMachine " name
-                        " (input ...) returned an unchanged DB for event "
-                        (pr-str input-event))))
+        (util/infof (str "Ignored input event: StateMachine %s (input ...) returned an unchanged "
+                         "DB for event %s.")
+                    name (pr-str input-event)))
       result))
   (current-state [_ state-db]
     (bcy/current-state machine state-db))

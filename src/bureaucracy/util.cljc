@@ -45,14 +45,14 @@
 
 #?
 (:clj
- (defmacro debug [fmt & args]
+ (defmacro debugf [fmt & args]
    (if (cljs-env? &env)
      `(.log js/console ~fmt ~@args)
      `(clojure.tools.logging/debugf ~fmt ~@args))))
 
 #?
 (:clj
- (defmacro info
+ (defmacro infof
    [fmt & args]
    (if (cljs-env? &env)
      `(.info js/console ~fmt ~@args)
@@ -60,14 +60,14 @@
 
 #?
 (:clj
- (defmacro warn [fmt & args]
+ (defmacro warnf [fmt & args]
    (if (cljs-env? &env)
      `(.warn js/console ~fmt ~@args)
      `(clojure.tools.logging/warnf ~fmt ~@args))))
 
 #?
 (:clj
- (defmacro error [fmt & args]
+ (defmacro errorf [fmt & args]
    (if (cljs-env? &env)
      `(.error js/console ~fmt ~@args)
      `(clojure.tools.logging/errorf ~fmt ~@args))))

@@ -14,8 +14,29 @@
     :dispatcher-arg dispatcher-arg
     :event-arg      event-arg}))
 
+(def ^:dynamic *delayed-dispatches* nil)
+
+(defn- delayed-dispatcher [dispatcher]
+  (fn
+    ([event-id]
+     (let [dispatch-fn (dispatcher event-id)]
+       (fn [event]
+         (swap! *delayed-dispatches* conj (delay (dispatch-fn event))))))
+    ([event-id dispatcher-arg]
+     (let [dispatch-fn (dispatcher event-id dispatcher-arg)]
+       (fn [event]
+         (swap! *delayed-dispatches* conj (delay (dispatch-fn event))))))))
+
 (defn input! [{:keys [state-machine db]} & args]
-  (swap! db #(bcy/input state-machine % (apply make-event args))))
+  (binding [*delayed-dispatches* (atom [])]
+    (swap! db #(bcy/input state-machine % (apply make-event args)))
+    (doseq [del @*delayed-dispatches*]
+      (deref del))
+    @db))
+
+(defn inputs! [system & inputs]
+  (doseq [in inputs]
+    (apply input! system inputs)))
 
 (defn pop-output! [{:keys [db] :as system}]
   (util/dequeue-in! db [:outputs]))
@@ -30,10 +51,14 @@
   (dispatch/auto-handle-outputs db
                                 (fn [dispatcher app-db output]
                                   (swap! previous-outputs conj output)
-                                  (output-handler dispatcher app-db output))
+                                  (output-handler (delayed-dispatcher dispatcher) app-db output))
                                 dispatcher)
   ;; Trigger the watch function to handle any outputs currently there.
-  (swap! db identity))
+  (binding [*delayed-dispatches* (atom [])]
+    (swap! db identity)
+    (doseq [del @*delayed-dispatches*]
+      (deref del))
+    @db))
 
 (defn current-state [{:keys [db state-machine]} path]
   (:state (:state-db (bcy/get-path state-machine (:state-db @db) path))))

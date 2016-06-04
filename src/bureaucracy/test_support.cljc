@@ -24,18 +24,14 @@
          ([]
           (dispatch nil))
          ([event]
-          (swap! *delayed-dispatches* conj (delay
-                                            (println (str "dispatching event " (pr-str event-id)))
-                                            (dispatch-fn event)))))))
+          (swap! *delayed-dispatches* conj (delay (dispatch-fn event)))))))
     ([event-id dispatcher-arg]
      (let [dispatch-fn (dispatcher event-id dispatcher-arg)]
        (fn dispatch
          ([]
           (dispatch nil))
          ([event]
-          (swap! *delayed-dispatches* conj (delay
-                                            (println (str "dispatching event " (pr-str event-id)))
-                                            (dispatch-fn event)))))))))
+          (swap! *delayed-dispatches* conj (delay (dispatch-fn event)))))))))
 
 (defn- swap-db-and-process-dispatches!
   "`(swap! db f)`, capturing any dispatches that result from processing

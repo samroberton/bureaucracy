@@ -437,7 +437,7 @@
         :else
         (let [lensed-db         (-get sublens machine-result)
               submachine-db     {:app-db   (:app-db lensed-db)
-                                 :state-db (::submachine-db (:state-db db))
+                                 :state-db {}
                                  :outputs  (util/queue)}
               start-event       (if (= ::start (:id input-event))
                                   input-event

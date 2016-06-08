@@ -27,7 +27,7 @@
   "`(swap! db f)`, capturing any dispatches that result from processing
   `:outputs` and executing those dispatches (which might then result in further
   `:outputs` causing further dispatches, etc)."
-  [{:keys [state-machine db]} f]
+  [db f]
   (binding [*delayed-dispatches* (atom (util/queue))]
     (swap! db f)
     (loop []
@@ -41,8 +41,8 @@
    (input! app event-id nil nil))
   ([app event-id dispatcher-arg]
    (input! app event-id dispatcher-arg nil))
-  ([{:keys [state-machine] :as app} event-id dispatcher-arg event-arg]
-   (swap-db-and-process-dispatches! app
+  ([{:keys [db state-machine]} event-id dispatcher-arg event-arg]
+   (swap-db-and-process-dispatches! db
                                     #(bcy/input state-machine % {:id             event-id
                                                                  :dispatcher-arg dispatcher-arg
                                                                  :event-arg      event-arg}))))
@@ -63,7 +63,7 @@
                                   (output-handler (delayed-dispatcher dispatcher) app-db output))
                                 dispatcher)
   ;; Trigger the watch function to handle any outputs currently there.
-  (swap-db-and-process-dispatches! app identity))
+  (swap-db-and-process-dispatches! db identity))
 
 (defn current-state [{:keys [db state-machine]} path]
   (:state (:state-db (bcy/get-path state-machine (:state-db @db) path))))
@@ -117,5 +117,5 @@
                                                                     (:dispatcher app)
                                                                     view-tree
                                                                     val)))))
-     (swap! db #(bcy/start state-machine % start-event))
+     (swap-db-and-process-dispatches! db #(bcy/start state-machine % start-event))
      app)))

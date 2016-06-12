@@ -1,6 +1,7 @@
 (ns bureaucracy.util
   #?(:cljs (:require-macros bureaucracy.util))
-  (:require [schema.core :as s]))
+  (:require [schema.core :as s]
+            #?(:clj [clojure.tools.logging])))
 
 (defn queue []
   #?(:clj clojure.lang.PersistentQueue/EMPTY :cljs #queue []))

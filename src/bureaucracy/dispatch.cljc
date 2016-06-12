@@ -84,14 +84,11 @@
      (if-let [event-id (get event-id-translations-map event-id event-id)]
        (dispatcher event-id)
        (fn [js-event]
-         (println "translate-dispatcher suppressing event" event-id)
          nil)))
     ([event-id :- bcy/InputEventId dispatcher-arg]
      (if-let [event-id (get event-id-translations-map event-id event-id)]
        (dispatcher event-id dispatcher-arg)
        (fn [js-event]
-         (println "translate-dispatcher suppressing event" event-id
-                  "with dispatcher-arg" dispatcher-arg)
          nil)))))
 
 (s/defn handle-outputs [output-handler dispatcher {:keys [app-db outputs] :as db} :- bcy/DB]

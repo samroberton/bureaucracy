@@ -8,7 +8,7 @@
 ;;;;
 
 (s/defschema State
-  "State machine states are (non-namespaced) keywords."
+  "State machine states are keywords."
   s/Keyword)
 
 (s/defschema InputEventId

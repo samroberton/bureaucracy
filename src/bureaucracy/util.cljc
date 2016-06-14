@@ -31,3 +31,6 @@
       (if (compare-and-set! map-atom m (assoc-in m path (pop queue)))
         (peek queue)
         (recur map-atom path)))))
+
+(defn map-vals [f m]
+  (reduce-kv (fn [m k v] (assoc m k (f v))) {} m))

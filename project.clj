@@ -1,5 +1,5 @@
-(defproject com.samroberton/bureaucracy "0.1.0-SNAPSHOT"
-  :description  "First-class state management for UIs via composeable state machines."
+(defproject com.samroberton/bureaucracy "0.2.0-SNAPSHOT"
+  :description  "First-class state management for UIs via composeable statecharts."
 
   :url          "https://github.com/samroberton/bureaucracy"
 

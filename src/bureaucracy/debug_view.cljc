@@ -43,6 +43,8 @@
   "Returns `[:li ...]`."
   (render-debug-view [this debuggee-state-db renderer-state-db path next-path-fn dispatcher]))
 
+;; FIXME
+#_
 (extend-protocol RenderDebugView
   bureaucracy.core.Unit
   (render-debug-view [this debuggee-state-db renderer-state-db path _ dispatcher]
@@ -52,7 +54,7 @@
        [:span.bcy-state
         (when selected? {:class "selected"})
         [:pre {:title (str "Path: " (pr-str path))}
-         (str (bcy/machine-name this))]
+         (str (bcy/machine-id this))]
         " = "
         [:pre (str (:state debuggee-state-db))]
         (cond selected?
@@ -63,10 +65,6 @@
               :else
               [:i.zmdi.zmdi-tag-close {:title    (str (pr-str path) " : The state-db at this path is empty")
                                        :on-click (dispatcher ::select-sm-path path)}])]]))
-
-  bureaucracy.core.LensedStateMachine
-  (render-debug-view [this debuggee-state-db renderer-state-db path next-path-fn dispatcher]
-    (render-debug-view (:machine this) debuggee-state-db renderer-state-db path next-path-fn dispatcher))
 
   bureaucracy.core.Submachine
   (render-debug-view [this debuggee-state-db renderer-state-db path next-path-fn dispatcher]
@@ -87,11 +85,11 @@
                                    (partial conj next-path)
                                    dispatcher)])))))
 
-  bureaucracy.core.Peer
+  bureaucracy.core.Concurrent
   (render-debug-view [this debuggee-state-db renderer-state-db path next-path-fn dispatcher]
-    (let [machine-name (str (bcy/machine-name this))]
-      [:li.peer {:key machine-name}
-       machine-name
+    (let [machine-id (str (bcy/machine-id this))]
+      [:li.peer {:key machine-id}
+       (str machine-id)
        (into [:ul.bcy-machine]
              (map (fn [[name submachine]]
                     (let [substate-db (get (:bureaucracy.core/submachine-dbs debuggee-state-db) name)]
@@ -110,6 +108,9 @@
                         (first state)
 
                         {view-machine :machine view-state-db :state-db}
+                        ;; FIXME
+                        nil
+                        #_
                         (bcy/get-path machine (:state-db db) path)
 
                         active?
@@ -159,7 +160,10 @@
                         dispatcher)]
     (when-let [path (:selected-path renderer-state-db)]
       (let [{submachine :machine
-             substate-db :state-db} (bcy/get-path machine (:state-db db) path)]
+             substate-db :state-db} ;; FIXME
+            nil
+            #_(bcy/get-path machine (:state-db db) path)
+            ]
         (show-state-details submachine substate-db dispatcher)))]
    [:h2 "View tree"]
    [:div.bcy-view-tree

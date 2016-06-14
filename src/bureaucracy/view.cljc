@@ -1,91 +1,92 @@
 (ns bureaucracy.view
-  (:require [bureaucracy.core :refer [current-state get-path matches-state?]]
-            [bureaucracy.dispatch :refer [translate-dispatcher]]))
+  (:require [bureaucracy.core :as bcy]
+            [bureaucracy.dispatch :as dispatch]))
 
-(defn- get-matching-state-db [state-machine db state-match-map]
-  (let [[path state-match-rule]    (first state-match-map)
-        {:keys [machine state-db]} (get-path state-machine (:state-db db) path)]
-    (when (and machine
-               state-db
-               ;; FIXME If 'machine' is not a StateMachine (if it's a map of
-               ;; {:peer-name StateMachine}), don't try this - it won't work.
-               (matches-state? state-match-rule (current-state machine state-db)))
-      state-db)))
-
-(defn- get-extra-data [state-machine db extra-data]
-  (map (fn [extra-path]
-         (cond (map? extra-path)
-               (get-matching-state-db state-machine db extra-path)
-               (sequential? extra-path)
-               (:state-db (get-path state-machine (:state-db db) extra-path))
-               :else
-               ;; FIXME what error info goes here?
-               (throw (ex-info "WTF is this?"
-                               {:state-machine state-machine
-                                :db db
-                                :extra-path extra-path}))))
-       extra-data))
-
-(defrecord ViewItem [view state-db extra-data dispatching subviews])
+(defrecord ViewItem [view state-dbs dispatching subviews])
 
 (defprotocol ViewRenderer
   (render-view-item [this dispatcher app-db view-item]))
 
-(defn- invoke-view-fn
-  [renderer
-   dispatcher
-   app-db
-   {:keys [view dispatching state-db extra-data subviews subview-item] :as view-item}]
-  (apply view
-         {:dispatcher      (if dispatching
-                             (translate-dispatcher dispatcher dispatching)
-                             dispatcher)
-          :render-subview  (fn [subview-id]
-                             ;; `find` since subview might exist but not
-                             ;; currently be rendered.
-                             (when-not (find subviews subview-id)
-                               (throw (ex-info (str "No such subview '" (name subview-id) "'")
-                                               {:subview-id (name subview-id)})))
-                             (when-let [subview-item (get subviews subview-id)]
-                               (render-view-item renderer dispatcher app-db subview-item)))
-          :render-subviews (fn [subview-id state-db-key coll]
-                             ;; `find` since subview might exist but not
-                             ;; currently be rendered.
-                             (when-not (find subviews subview-id)
-                               (throw (ex-info (str "No such subview '" (name subview-id) "'")
-                                               {:subview-id (name subview-id)})))
-                             (when-let [subview-item (get subviews subview-id)]
-                               (map-indexed (fn [idx item]
-                                              (render-view-item renderer
-                                                                dispatcher
-                                                                app-db
-                                                                (assoc subview-item
-                                                                       :subview-item
-                                                                       {:key   state-db-key
-                                                                        :index idx
-                                                                        :item  item})))
-                                            coll)))}
-         app-db
-         (if subview-item
-           (assoc state-db (:key subview-item) (dissoc subview-item :key))
-           state-db)
-         extra-data))
+(defn- invoke-view-fn [renderer dispatcher app-db view-item]
+  (let [{:keys [view dispatching state-dbs subviews subview-item]} view-item]
+    (view {:dispatcher      (if dispatching
+                              (dispatch/translate-dispatcher dispatcher dispatching)
+                              dispatcher)
+           :render-subview  (fn [subview-id]
+                              ;; `find` since subview might exist but not
+                              ;; currently be rendered.
+                              (when-not (find subviews subview-id)
+                                (throw (ex-info (str "No such subview '" (name subview-id) "'")
+                                                {:subview-id (name subview-id)})))
+                              (when-let [subview-item (get subviews subview-id)]
+                                (render-view-item renderer dispatcher app-db subview-item)))
+           :render-subviews (fn [subview-id state-db-key coll]
+                              ;; `find` since subview might exist but not
+                              ;; currently be rendered.
+                              (when-not (find subviews subview-id)
+                                (throw (ex-info (str "No such subview '" (name subview-id) "'")
+                                                {:subview-id (name subview-id)})))
+                              (when-let [subview-item (get subviews subview-id)]
+                                (doall
+                                 (map-indexed (fn [idx item]
+                                                (render-view-item renderer
+                                                                  dispatcher
+                                                                  app-db
+                                                                  (assoc subview-item
+                                                                         :subview-item
+                                                                         {:key   state-db-key
+                                                                          :index idx
+                                                                          :item  item})))
+                                              coll))))}
+      app-db
+      (if subview-item
+        (assoc state-dbs (:key subview-item) (dissoc subview-item :key))
+        state-dbs))))
+
+(defn- as-machine-id [machine-or-machine-id]
+  (if (satisfies? bcy/StateMachine machine-or-machine-id)
+    (bcy/machine-id machine-or-machine-id)
+    machine-or-machine-id))
+
+(defn- db-matches-state? [{:keys [state-db] :as db} state-match-spec]
+  (letfn [(matches? [[machine rule]]
+            (let [id (as-machine-id machine)]
+              (assert (symbol? id))
+              (bcy/matches-state? rule (get-in state-db [id :state]))))]
+    (every? matches? state-match-spec)))
+
+(defn- get-state-dbs [state-dbs-spec state-db]
+  (cond (satisfies? bcy/StateMachine state-dbs-spec)
+        (get state-db (bcy/machine-id state-dbs-spec))
+        (symbol? state-dbs-spec)
+        (get state-db state-dbs-spec)
+        (map? state-dbs-spec)
+        (reduce-kv (fn [result k subspec]
+                     (assoc result k (get-state-dbs subspec state-db)))
+                   {}
+                   state-dbs-spec)
+        ;; A vector serves as a tuple of [machine {:keys paths-in-machine's-state-db}]
+        (vector? state-dbs-spec)
+        (let [machine-db (get state-db (as-machine-id (first state-dbs-spec)))]
+          (reduce-kv (fn [result k path]
+                       (assoc result k (get-in machine-db path)))
+                     {}
+                     (second state-dbs-spec)))))
 
 (defn render-view-tree [renderer state-machine dispatcher view-tree db]
   (letfn [(transform-views [view-items]
             (if (sequential? view-items)
               (first (remove nil? (map transform-views view-items)))
               (transform-view view-items)))
-          (transform-view [{:keys [view dispatching state extra-data subviews]}]
-            (when-let [view-state-db (get-matching-state-db state-machine db state)]
+          (transform-view [{:keys [view name dispatching state state-dbs subviews]}]
+            (when (db-matches-state? db state)
               (map->ViewItem
                {:view        view
-                :state-db    view-state-db
-                :extra-data  (get-extra-data state-machine db extra-data)
+                :state-dbs   (get-state-dbs state-dbs (:state-db db))
                 :dispatching dispatching
                 :subviews    (not-empty
-                              (reduce-kv (fn [result k sv]
-                                           (assoc result k (transform-views sv)))
+                              (reduce-kv (fn [result k subview]
+                                           (assoc result k (transform-views subview)))
                                          {}
                                          subviews))})))]
     (let [transformed-view-item (transform-views view-tree)]
@@ -140,7 +141,7 @@
                 (when view-item
                   (let [result (reactifier (invoke-view-fn renderer dispatcher app-db view-item))]
                     #_
-                    (.log js/console (str (.-name (:view view-item)) " rendered in "
+                    (.log js/console (str (.-name view-item) " rendered in "
                                           (- (.getTime (js/Date.)) start-time) "ms"))
                     result)))))}))))
 
@@ -164,22 +165,3 @@
     ;; display name.
     (let [factory (react-factory react reactifier)]
       (ReactViewRenderer. factory)))))
-
-
-(defn with-path-prefix
-  "FIXME: document with-path-prefix."
-  [prefix the-view]
-  (if (sequential? the-view)
-    (mapv (partial with-path-prefix prefix) the-view)
-    (let [{:keys [view state subviews extra-data]} the-view]
-      (assoc the-view
-             :state      (into {} (for [[path rule] state]
-                                    [(concat prefix path) rule]))
-             :subviews   (into {} (for [[k v] subviews]
-                                    [k (with-path-prefix prefix v)]))
-             :extra-data (map (fn [extra-path]
-                                (if (map? extra-path)
-                                  (let [[path rule] (first extra-path)]
-                                    {(concat prefix path) rule})
-                                  (concat prefix extra-path)))
-                              extra-data)))))

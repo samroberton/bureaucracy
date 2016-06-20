@@ -1,47 +1,12 @@
 (ns bureaucracy.view
   (:require [bureaucracy.core :as bcy]
-            [bureaucracy.dispatch :as dispatch]))
+            [bureaucracy.dispatch :as dispatch]
+            [bureaucracy.util :as util]
+            [clojure.set :as set]))
 
-(defrecord ViewItem [view state-dbs dispatching subviews])
-
-(defprotocol ViewRenderer
-  (render-view-item [this dispatcher app-db view-item]))
-
-(defn- invoke-view-fn [renderer dispatcher app-db view-item]
-  (let [{:keys [view dispatching state-dbs subviews subview-item]} view-item]
-    (view {:dispatcher      (if dispatching
-                              (dispatch/translate-dispatcher dispatcher dispatching)
-                              dispatcher)
-           :render-subview  (fn [subview-id]
-                              ;; `find` since subview might exist but not
-                              ;; currently be rendered.
-                              (when-not (find subviews subview-id)
-                                (throw (ex-info (str "No such subview '" (name subview-id) "'")
-                                                {:subview-id (name subview-id)})))
-                              (when-let [subview-item (get subviews subview-id)]
-                                (render-view-item renderer dispatcher app-db subview-item)))
-           :render-subviews (fn [subview-id state-db-key coll]
-                              ;; `find` since subview might exist but not
-                              ;; currently be rendered.
-                              (when-not (find subviews subview-id)
-                                (throw (ex-info (str "No such subview '" (name subview-id) "'")
-                                                {:subview-id (name subview-id)})))
-                              (when-let [subview-item (get subviews subview-id)]
-                                (doall
-                                 (map-indexed (fn [idx item]
-                                                (render-view-item renderer
-                                                                  dispatcher
-                                                                  app-db
-                                                                  (assoc subview-item
-                                                                         :subview-item
-                                                                         {:key   state-db-key
-                                                                          :index idx
-                                                                          :item  item})))
-                                              coll))))}
-      app-db
-      (if subview-item
-        (assoc state-dbs (:key subview-item) (dissoc subview-item :key))
-        state-dbs))))
+;;;;
+;;;; Util functions
+;;;;
 
 (defn- as-machine-id [machine-or-machine-id]
   (if (satisfies? bcy/StateMachine machine-or-machine-id)
@@ -73,95 +38,103 @@
                      {}
                      (second state-dbs-spec)))))
 
-(defn render-view-tree [renderer state-machine dispatcher view-tree db]
-  (letfn [(transform-views [view-items]
-            (if (sequential? view-items)
-              (first (remove nil? (map transform-views view-items)))
-              (transform-view view-items)))
-          (transform-view [{:keys [view name dispatching state state-dbs subviews]}]
-            (when (db-matches-state? db state)
-              (map->ViewItem
-               {:view        view
-                :state-dbs   (get-state-dbs state-dbs (:state-db db))
-                :dispatching dispatching
-                :subviews    (not-empty
-                              (reduce-kv (fn [result k subview]
-                                           (assoc result k (transform-views subview)))
-                                         {}
-                                         subviews))})))]
-    (let [transformed-view-item (transform-views view-tree)]
-      (render-view-item renderer dispatcher (:app-db db) transformed-view-item))))
+(defn- get-app-db [app-db-spec app-db]
+  ;; FIXME implement get-app-db
+  app-db)
 
-(deftype BasicViewRenderer []
-  ViewRenderer
-  (render-view-item [this dispatcher app-db view-item]
-    (invoke-view-fn this dispatcher app-db view-item)))
+(defn- get-items [[machine path] state-db]
+  (get-in state-db (cons (as-machine-id machine) path)))
 
-#?
-(:cljs
- (defn- react-factory [react reactifier]
-   (.createFactory react
-    (.createClass react
-     #js {:displayName
-          "bureaucracy"
-          :shouldComponentUpdate
-          (fn [next-props _]
-            (this-as this
-              (let [curr-props (.-props this)
-                    result     (or (not= (aget curr-props "appDb")
-                                         (aget next-props "appDb"))
-                                   (not= (aget curr-props "viewItem")
-                                         (aget next-props "viewItem")))]
-                #_
-                (when (:view (.-viewItem curr-props))
-                  (.log js/console (str (.-name (:view (aget curr-props "viewItem")))
-                                        ": app-db is "
-                                        (if (= (aget curr-props "appDb")
-                                               (aget next-props "appDb"))
-                                          "unchanged" "changed")
-                                        ", view-item is "
-                                        (if (= (aget curr-props "viewItem")
-                                               (aget next-props "viewItem"))
-                                          "unchanged" "changed")
-                                        ". Returning " result "."
-                                        "\ncurr-props .-view-item:"
-                                        (pr-str (dissoc (aget curr-props "viewItem") :view))
-                                        ".\nnext-props .-view-item:"
-                                        (pr-str (dissoc (aget next-props "viewItem") :view)))))
-                result)))
-          :render
-          (fn []
-            (this-as this
-              (let [start-time   (.getTime (js/Date.))
-                    props        (.-props this)
-                    renderer     (aget props "renderer")
-                    dispatcher   (aget props "dispatcher")
-                    app-db       (aget props "appDb")
-                    view-item    (aget props "viewItem")]
-                (when view-item
-                  (let [result (reactifier (invoke-view-fn renderer dispatcher app-db view-item))]
-                    #_
-                    (.log js/console (str (.-name view-item) " rendered in "
-                                          (- (.getTime (js/Date.)) start-time) "ms"))
-                    result)))))}))))
+(defn get-dbs [{:keys [match-rule app-db-spec state-dbs-spec items-spec]} db]
+  (when (db-matches-state? db match-rule)
+    {:app-db    (get-app-db app-db-spec (:app-db db))
+     :state-dbs (get-state-dbs state-dbs-spec (:state-db db))
+     :items     (get-items items-spec (:state-db db))}))
 
-#?
-(:cljs
- (deftype ReactViewRenderer [factory]
-   ViewRenderer
-   (render-view-item [this dispatcher app-db view-item]
-     (factory #js {"renderer"   this
-                   "dispatcher" dispatcher
-                   "appDb"      app-db
-                   "viewItem"   view-item}))))
 
-#?
-(:cljs
- (defn react-view-renderer
-   ([react]
-    (react-view-renderer react identity))
-   ([react reactifier]
-    ;; FIXME factory per view function, so we can use the view function as the
-    ;; display name.
-    (let [factory (react-factory react reactifier)]
-      (ReactViewRenderer. factory)))))
+;;;;
+;;;; View tree
+;;;;
+
+(defn make-view-tree
+  ([node]
+   (make-view-tree identity node))
+  ([node-wrapper node]
+   (letfn [(make-node [node]
+             (node-wrapper
+              (let [node (set/rename-keys node {:state     :match-rule
+                                                :view      :view-fn
+                                                :name      :view-name
+                                                :abb-db    :app-db-spec
+                                                :state-dbs :state-dbs-spec
+                                                :items     :items-spec})]
+                (if (find node :subviews)
+                  (update node :subviews #(util/map-vals (partial make-view-tree node-wrapper) %))
+                  node))))]
+     (doall
+      (map make-node (if (sequential? node)
+                       node
+                       [node]))))))
+
+
+(defn apply-view-tree [view-tree db]
+  (letfn [(do-apply [view-tree]
+            (->> view-tree
+                 (map (fn [{:keys [view-fn subviews] :as node}]
+                        (when-let [{:keys [app-db state-dbs items]} (get-dbs node db)]
+                          {:node           node
+                           :view-app-db    app-db
+                           :view-state-dbs state-dbs
+                           :view-items     items
+                           :subviews       (reduce-kv (fn [result k subview-tree]
+                                                        (assoc result k (do-apply subview-tree)))
+                                                      {}
+                                                      subviews)})))
+                 (some identity)))]
+    (do-apply view-tree)))
+
+
+(defn- invoke-view-fn [callbacks {:keys [view-fn dispatching]} subviews app-db state-dbs]
+  (let [subview-fns (when subviews
+                      {:render-subview  (fn [subview-id]
+                                          (assert (find subviews subview-id)
+                                                  (str "No such subview '" subview-id "'."))
+                                          (get subviews subview-id))
+                       :render-subviews (fn [subview-id]
+                                          (assert (find subviews subview-id)
+                                                  (str "No such subview '" subview-id "'."))
+                                          (get subviews subview-id))})
+        callbacks   (-> callbacks
+                        (assoc :subviews subviews)
+                        (update :dispatcher (fn [dispatcher]
+                                              (if dispatching
+                                                (dispatch/translate-dispatcher dispatcher
+                                                                               dispatching)
+                                                dispatcher)))
+                        (merge subview-fns))]
+    (view-fn callbacks app-db state-dbs)))
+
+
+(defn render-applied-tree [dispatcher {:keys [node view-app-db view-state-dbs view-items subviews]}]
+  (let [callbacks          {:dispatcher dispatcher}
+        {:keys [items-spec
+                item-key]} node
+        rendered-subviews  (when (not-empty subviews)
+                             (util/map-vals (fn [subview]
+                                              (when subview
+                                                (render-applied-tree dispatcher subview)))
+                                            subviews))]
+    (if items-spec
+      (doall (map-indexed (fn [index item]
+                            (invoke-view-fn callbacks
+                                            node
+                                            rendered-subviews
+                                            view-app-db
+                                            (assoc view-state-dbs item-key {:item  item
+                                                                            :index index})))
+                          view-items))
+      (invoke-view-fn callbacks node rendered-subviews view-app-db view-state-dbs))))
+
+(defn render [dispatcher view-tree db]
+  (let [applied (apply-view-tree view-tree db)]
+    (render-applied-tree dispatcher applied)))

@@ -140,10 +140,10 @@
   (boolean (some (partial = state) (map (comp :state second) (:state-db @db)))))
 
 (defn- do-render
-  [{:keys [dispatcher last-rendered-dispatchers state-machine view-renderer view-tree]} db-val]
+  [{:keys [dispatcher last-rendered-dispatchers view-tree]} db-val]
   (reset! last-rendered-dispatchers {})
   (binding [*dispatcher-tracking-atom* last-rendered-dispatchers]
-    (view/render-view-tree view-renderer state-machine dispatcher view-tree db-val)))
+    (view/render dispatcher view-tree db-val)))
 
 (defn render [{:keys [view-tree db] :as app}]
   (assert view-tree "You didn't supply a view tree -- we're not rendering anything.")
@@ -161,8 +161,7 @@
   `(:outputs @db)`."
   ([state-machine]
    (make-app state-machine {}))
-  ([state-machine {:keys [app-db dispatcher output-handler outputs-paused? start-event view-renderer
-                          view-tree]}]
+  ([state-machine {:keys [app-db dispatcher output-handler outputs-paused? start-event view-tree]}]
    (let [db  (atom (bcy/init-db app-db))
          app (merge {:state-machine state-machine
                      :db            db
@@ -170,9 +169,7 @@
                                      (or dispatcher
                                          (dispatch/make-immediate-dispatcher state-machine db)))}
                     (when view-tree
-                      {:view-renderer             (or view-renderer
-                                                      (bureaucracy.view.BasicViewRenderer.))
-                       :view-tree                 view-tree
+                      {:view-tree                 (view/make-view-tree view-tree)
                        :last-rendered-view        (atom nil)
                        :last-rendered-dispatchers (atom {})})
                     (when output-handler

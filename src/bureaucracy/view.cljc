@@ -115,14 +115,13 @@
     (view-fn callbacks app-db state-dbs)))
 
 
-(defn render-applied-tree [dispatcher {:keys [node view-app-db view-state-dbs view-items subviews]}]
-  (let [callbacks          {:dispatcher dispatcher}
-        {:keys [items-spec
+(defn render-applied-tree [callbacks {:keys [node view-app-db view-state-dbs view-items subviews]}]
+  (let [{:keys [items-spec
                 item-key]} node
         rendered-subviews  (when (not-empty subviews)
                              (util/map-vals (fn [subview]
                                               (when subview
-                                                (render-applied-tree dispatcher subview)))
+                                                (render-applied-tree callbacks subview)))
                                             subviews))]
     (if items-spec
       (doall (map-indexed (fn [index item]
@@ -135,6 +134,7 @@
                           view-items))
       (invoke-view-fn callbacks node rendered-subviews view-app-db view-state-dbs))))
 
-(defn render [dispatcher view-tree db]
+(defn render [callbacks view-tree db]
+  (assert (:dispatcher callbacks) "The :dispatcher callback is required.")
   (let [applied (apply-view-tree view-tree db)]
-    (render-applied-tree dispatcher applied)))
+    (render-applied-tree callbacks applied)))

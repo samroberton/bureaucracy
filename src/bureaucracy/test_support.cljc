@@ -134,16 +134,16 @@
      (get-in @db [:state-db id]))))
 
 (defn in-state?
-  "Returns true if any state machines is in a state `state`: probably mostly
+  "Returns true if any state machine is in a state `state`: probably mostly
   useful if you use namespaced keywords as states."
   [{:keys [db state-machine]} state]
   (boolean (some (partial = state) (map (comp :state second) (:state-db @db)))))
 
 (defn- do-render
-  [{:keys [dispatcher last-rendered-dispatchers view-tree]} db-val]
+  [{:keys [dispatcher last-rendered-dispatchers view-tree view-callbacks]} db-val]
   (reset! last-rendered-dispatchers {})
   (binding [*dispatcher-tracking-atom* last-rendered-dispatchers]
-    (view/render dispatcher view-tree db-val)))
+    (view/render (merge view-callbacks {:dispatcher dispatcher}) view-tree db-val)))
 
 (defn render [{:keys [view-tree db] :as app}]
   (assert view-tree "You didn't supply a view tree -- we're not rendering anything.")
@@ -161,7 +161,8 @@
   `(:outputs @db)`."
   ([state-machine]
    (make-app state-machine {}))
-  ([state-machine {:keys [app-db dispatcher output-handler outputs-paused? start-event view-tree]}]
+  ([state-machine {:keys [app-db dispatcher output-handler outputs-paused? start-event view-tree
+                          view-callbacks]}]
    (let [db  (atom (bcy/init-db app-db))
          app (merge {:state-machine state-machine
                      :db            db
@@ -172,6 +173,8 @@
                       {:view-tree                 (view/make-view-tree view-tree)
                        :last-rendered-view        (atom nil)
                        :last-rendered-dispatchers (atom {})})
+                    (when view-callbacks
+                      {:view-callbacks view-callbacks})
                     (when output-handler
                       (let [prev-outputs     (atom [])
                             prev-dispatchers (atom {})]
